@@ -32,6 +32,10 @@ var raw string = `
 #                                                   #
 #####################################################`
 
+type WorldStore interface {
+	GetWorld(id string) *World
+}
+
 type Layout [][]byte
 
 func ConvertLayout(layout string) Layout {
@@ -60,4 +64,7 @@ func NewWorld(id string, width, height int, layout Layout) *World {
 		Height: height,
 		Layout: layout,
 	}
+}
+
+func GetWorld(id string) *World {
 }
