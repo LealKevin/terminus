@@ -2,8 +2,7 @@ package domain
 
 import "strings"
 
-var raw string = `
-#####################################################
+var Raw string = `#####################################################
 #                                                   #
 #                                                   #
 #                                                   #
@@ -66,5 +65,5 @@ func NewWorld(id string, width, height int, layout Layout) *World {
 	}
 }
 
-func GetWorld(id string) *World {
-}
+//func GetWorld(id string) *World {
+//}
