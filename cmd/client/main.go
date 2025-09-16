@@ -24,6 +24,9 @@ type ServerMsg struct {
 	Height int    `json:"height,omitempty"`
 	Layout string `json:"layout,omitempty"`
 	Msg    string `json:"msg,omitempty"`
+	Mobs   []Mob  `json:"mobs"`
+	World  world  `json:"world,omitempty"`
+	Player Player `json:"player,omitempty"`
 }
 
 type Player struct {
@@ -63,14 +66,15 @@ func ServerConnection() (*connectionWrapper, error) {
 	}, nil
 }
 
-func (cw *connectionWrapper) readServerMessage() (ServerMsg, error) {
-	var msg ServerMsg
-
-	err := cw.decoder.Decode(&msg)
-	if err != nil {
-		return ServerMsg{}, err
+func (cw *connectionWrapper) listenForServerMessages() tea.Cmd {
+	return func() tea.Msg {
+		var msg ServerMsg
+		err := cw.decoder.Decode(&msg)
+		if err != nil {
+			return errMsg{err}
+		}
+		return msg
 	}
-	return msg, nil
 }
 
 func (cw *connectionWrapper) getWorld(id string) tea.Cmd {
@@ -86,14 +90,7 @@ func (cw *connectionWrapper) getWorld(id string) tea.Cmd {
 			return errMsg{err}
 		}
 
-		var worldData world
-		err = cw.decoder.Decode(&worldData)
-		if err != nil {
-			return errMsg{err}
-		}
-
-		fmt.Printf("Received world: %+v\n", worldData)
-		return worldData
+		return nil
 	}
 }
 
@@ -130,26 +127,7 @@ func (cw *connectionWrapper) sendMove(dir string) tea.Cmd {
 		if err != nil {
 			return errMsg{err}
 		}
-
-		var rawMsg json.RawMessage
-		err = cw.decoder.Decode(&rawMsg)
-		if err != nil {
-			return errMsg{fmt.Errorf("failed to decode raw message: %v", err)}
-		}
-
-		var player Player
-		err = json.Unmarshal(rawMsg, &player)
-		if err == nil && player.ID != "" {
-			return player
-		}
-
-		var serverMsg ServerMsg
-		err = json.Unmarshal(rawMsg, &serverMsg)
-		if err == nil {
-			return serverMsg
-		}
-
-		return errMsg{fmt.Errorf("couldn't decode as Player or ServerMsg: %s", string(rawMsg))}
+		return nil
 	}
 }
 
@@ -168,10 +146,24 @@ type Entity struct {
 	Type   string
 }
 
+type Mob struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	WorldID     string `json:"worldID"`
+	X           int    `json:"x"`
+	Y           int    `json:"y"`
+	Type        string `json:"type"`
+	Health      int    `json:"health"`
+	Attack      int    `json:"attack"`
+	Defense     int    `json:"defense"`
+	AttackSpeed int    `json:"attackSpeed"`
+	Symbol      rune   `json:"symbol"`
+}
+
 type GameState struct {
 	world  world
 	player Player
-	mobs   []Entity
+	mobs   []Mob
 	items  []Entity
 }
 
@@ -246,6 +238,7 @@ func (m Model) Init() tea.Cmd {
 	fmt.Print("Connecting to server...\n")
 	var cmds []tea.Cmd
 	cmds = append(cmds, m.conn.getWorld("world1"))
+	cmds = append(cmds, m.conn.listenForServerMessages())
 
 	return tea.Batch(cmds...)
 }
@@ -254,39 +247,46 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case errMsg:
 		m.err = msg.error
-		return m, nil
-
-	case world:
-		m.gameState.world = msg
-		m.msgForNow = "World loaded! Use arrow keys or 'j'/'k' to move, 'q' to quit."
-
-		m.gameState.items = []Entity{
-			{ID: "item1", X: 10, Y: 5, Symbol: '$', Type: "coin"},
-			{ID: "item2", X: 15, Y: 8, Symbol: '!', Type: "potion"},
-		}
-		m.gameState.mobs = []Entity{
-			{ID: "mob1", X: 20, Y: 10, Symbol: 'G', Type: "goblin"},
-			{ID: "mob2", X: 25, Y: 12, Symbol: 'O', Type: "orc"},
-		}
-		return m, m.conn.getPlayer("1")
+		return m, m.conn.listenForServerMessages()
 
 	case Player:
 		m.msgForNow = fmt.Sprintf("Player moved to (%d, %d)", msg.X, msg.Y)
 		m.gameState.player = msg
-		return m, nil
+		return m, m.conn.listenForServerMessages()
 
 	case ServerMsg:
+		if msg.Type == "world" {
+			m.gameState.world = msg.World
+			return m, tea.Batch(
+				m.conn.getPlayer("1"),
+				m.conn.listenForServerMessages(),
+			)
+		}
+
 		if msg.Type == "error" {
 			m.msgForNow = "Cannot move: " + msg.Msg
 			m.err = nil
-			return m, nil
+			return m, m.conn.listenForServerMessages()
+		}
+
+		if msg.Type == "playerUpdate" {
+			m.msgForNow = msg.Msg
+			m.gameState.player = msg.Player
+			return m, m.conn.listenForServerMessages()
+		}
+
+		if msg.Type == "mobsUpdate" {
+			m.gameState.mobs = msg.Mobs
+			return m, m.conn.listenForServerMessages()
 		}
 
 		if msg.Type == "success" {
 			m.msgForNow = msg.Msg
 			m.err = nil
-			return m, nil
+			return m, m.conn.listenForServerMessages()
 		}
+
+		return m, m.conn.listenForServerMessages()
 
 	case tea.KeyMsg:
 		switch msg.String() {
@@ -295,31 +295,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "up", "k":
 			m.msgForNow = "Moving up"
-			return m, m.conn.sendMove("N")
+			return m, tea.Batch(m.conn.sendMove("N"), m.conn.listenForServerMessages())
 		case "down", "j":
 			m.msgForNow = "Moving down"
-			return m, m.conn.sendMove("S")
+			return m, tea.Batch(m.conn.sendMove("S"), m.conn.listenForServerMessages())
 		case "left", "h":
 			m.msgForNow = "Moving left"
-			return m, m.conn.sendMove("W")
+			return m, tea.Batch(m.conn.sendMove("W"), m.conn.listenForServerMessages())
 		case "right", "l":
 			m.msgForNow = "Moving right"
-			return m, m.conn.sendMove("E")
+			return m, tea.Batch(m.conn.sendMove("E"), m.conn.listenForServerMessages())
 		case "y":
 			m.msgForNow = "Moving up-left"
-			return m, m.conn.sendMove("NW")
+			return m, tea.Batch(m.conn.sendMove("NW"), m.conn.listenForServerMessages())
 		case "u":
 			m.msgForNow = "Moving up-right"
-			return m, m.conn.sendMove("NE")
+			return m, tea.Batch(m.conn.sendMove("NE"), m.conn.listenForServerMessages())
 		case "b":
 			m.msgForNow = "Moving down-left"
-			return m, m.conn.sendMove("SW")
+			return m, tea.Batch(m.conn.sendMove("SW"), m.conn.listenForServerMessages())
 		case "n":
 			m.msgForNow = "Moving down-right"
-			return m, m.conn.sendMove("SE")
+			return m, tea.Batch(m.conn.sendMove("SE"), m.conn.listenForServerMessages())
 		}
 
-		return m, nil
+		return m, m.conn.listenForServerMessages()
 	}
 	return m, nil
 }

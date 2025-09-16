@@ -12,6 +12,9 @@ type Player struct {
 	WorldID string `json:"worldID"`
 	X       int    `json:"x"`
 	Y       int    `json:"y"`
+	Health  int    `json:"health"`
+	Attack  int    `json:"attack"`
+	Defense int    `json:"defense"`
 }
 
 func NewPlayer(id string, x, y int) *Player {
@@ -58,4 +61,16 @@ func (p *Player) Move(direction string, world *World) error {
 	}
 	p.X, p.Y = nx, ny
 	return nil
+}
+
+func (p *Player) TakeDamage(damage int) {
+	damage -= p.Defense
+	p.Health -= damage
+	if p.Health < 0 {
+		p.Health = 0
+	}
+}
+
+func (p *Player) IsAlive() bool {
+	return p.Health > 0
 }
