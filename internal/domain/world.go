@@ -49,11 +49,11 @@ func ConvertLayout(layout string) Layout {
 }
 
 type World struct {
-	ID     string
-	Width  int
-	Height int
+	ID     string `json:"id"`
+	Width  int    `json:"width"`
+	Height int    `json:"height"`
 
-	Layout Layout
+	Layout Layout `json:"layout"`
 }
 
 func NewWorld(id string, width, height int, layout Layout) *World {

@@ -8,30 +8,28 @@ type PlayerStore interface {
 }
 
 type Player struct {
-	ID      string
-	WorldID string
-	Position
-}
-
-type Position struct {
-	X int
-	Y int
+	ID      string `json:"id"`
+	WorldID string `json:"worldID"`
+	X       int    `json:"x"`
+	Y       int    `json:"y"`
 }
 
 func NewPlayer(id string, x, y int) *Player {
 	return &Player{
 		ID: id,
-		Position: Position{
-			X: x,
-			Y: y,
-		},
+		X:  x,
+		Y:  y,
 	}
 }
 
 func (p *Player) canMove(x, y int, world *World) bool {
-	if x < 0 || y < 0 || x >= world.Width || y >= world.Height {
+	if y < 0 || y >= len(world.Layout) {
 		return false
 	}
+	if x < 0 || x >= len(world.Layout[y]) {
+		return false
+	}
+
 	if world.Layout[y][x] == '#' {
 		return false
 	}

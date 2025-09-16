@@ -19,7 +19,7 @@ type WorldMemoryStore struct {
 func NewPlayerMemoryStore() *PlayerMemoryStore {
 	return &PlayerMemoryStore{
 		players: map[string]*domain.Player{
-			"1": {ID: "1", WorldID: "world1", Position: domain.Position{X: 2, Y: 2}},
+			"1": {ID: "1", WorldID: "world1", X: 2, Y: 2},
 		},
 	}
 }
@@ -27,7 +27,7 @@ func NewPlayerMemoryStore() *PlayerMemoryStore {
 func NewWorldMemoryStore() *WorldMemoryStore {
 	return &WorldMemoryStore{
 		worlds: map[string]*domain.World{
-			"world1": {ID: "world1", Width: 53, Height: 25, Layout: domain.ConvertLayout(domain.Raw)},
+			"world1": {ID: "1", Width: 53, Height: 25, Layout: domain.ConvertLayout(domain.Raw)},
 		},
 	}
 }
