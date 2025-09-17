@@ -84,5 +84,3 @@ func (m *Mob) TakeDamage(damage int) {
 func (m *Mob) AttackTarget(target *Player) {
 	target.TakeDamage(m.Attack)
 }
-
-func (m *Mob) Get
