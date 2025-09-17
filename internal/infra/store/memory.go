@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/LealKevin/terminus/internal/domain"
@@ -32,7 +33,7 @@ func NewPlayerMemoryStore() *PlayerMemoryStore {
 func NewWorldMemoryStore() *WorldMemoryStore {
 	return &WorldMemoryStore{
 		worlds: map[string]*domain.World{
-			"world1": {ID: "1", Width: 53, Height: 25, Layout: domain.ConvertLayout(domain.Raw)},
+			"world1": {ID: "world1", Width: 53, Height: 25, Layout: domain.ConvertLayout(domain.Raw)},
 		},
 	}
 }
@@ -114,5 +115,6 @@ func (ms *MobMemoryStore) GetMobsByWorld(worldID string) []*domain.Mob {
 			mobs = append(mobs, mob)
 		}
 	}
+	fmt.Printf("Mobs in world %s: %+v\n", worldID, mobs)
 	return mobs
 }

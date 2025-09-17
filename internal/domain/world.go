@@ -1,6 +1,10 @@
 package domain
 
-import "strings"
+import (
+	"fmt"
+	"math/rand"
+	"strings"
+)
 
 var Raw string = `#####################################################
 #                                                   #
@@ -65,5 +69,42 @@ func NewWorld(id string, width, height int, layout Layout) *World {
 	}
 }
 
-//func GetWorld(id string) *World {
-//}
+func (w *World) findRandomSpawnPosition(occupiedPositions map[string]bool) (int, int, error) {
+	maxAttempts := 100
+	for i := 0; i < maxAttempts; i++ {
+		x := rand.Intn(w.Width)
+		y := rand.Intn(w.Height)
+
+		// Check if position is valid (not a wall or player spawn)
+		if w.Layout[y][x] != '#' && w.Layout[y][x] != '@' {
+			// Check if position is not already occupied
+			key := fmt.Sprintf("%d,%d", x, y)
+			if !occupiedPositions[key] {
+				return x, y, nil
+			}
+		}
+	}
+	return 0, 0, fmt.Errorf("could not find valid spawn position after %d attempts", maxAttempts)
+}
+
+func (w *World) SpawnMob(mobType, name, mobID string, occupiedPositions map[string]bool) (*Mob, error) {
+	x, y, err := w.findRandomSpawnPosition(occupiedPositions)
+	if err != nil {
+		return nil, err
+	}
+
+	mob := &Mob{
+		ID:      mobID,
+		Name:    name,
+		Type:    mobType,
+		WorldID: w.ID,
+		X:       x,
+		Y:       y,
+		Health:  100,
+		Attack:  10,
+		Defense: 5,
+		Symbol:  'M',
+	}
+
+	return mob, nil
+}

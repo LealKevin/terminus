@@ -234,25 +234,14 @@ func (h *Handler) HandleMobSpawn(ctx context.Context, worldID string, mobType st
 		return nil, fmt.Errorf("world not found")
 	}
 
-	x, y, err := h.getRandomSpawnPosition(worldID)
+	mobID := fmt.Sprintf("mob-%d-%d", h.Mobs.CountMobsInWorld(worldID)+1, rand.Intn(10000))
+	occupiedPositions := h.getOccupiedPositions(worldID)
+
+	mob, err := world.SpawnMob(mobType, name, mobID, occupiedPositions)
 	if err != nil {
 		return nil, err
 	}
 
-	mobID := fmt.Sprintf("mob-%d", h.Mobs.CountMobsInWorld(worldID)+1)
-	mob := &domain.Mob{
-		ID:      mobID,
-		Name:    name,
-		Type:    mobType,
-		X:       x,
-		Y:       y,
-		Health:  100,
-		Attack:  10,
-		Defense: 5,
-		Symbol:  'M',
-	}
-
-	mob.WorldID = worldID
 	h.Mobs.CreateMob(mob)
 	log.Printf("Spawned mob %s of type %s at (%d, %d) in world %s", mob.ID, mob.Type, mob.X, mob.Y, world.ID)
 
@@ -291,34 +280,16 @@ func (h *Handler) HandleMobDespawn(ctx context.Context, mobID string) error {
 	return nil
 }
 
-func (h *Handler) getRandomSpawnPosition(worldID string) (int, int, error) {
-	world := h.Worlds.GetWorld(worldID)
-	if world == nil {
-		return 0, 0, fmt.Errorf("world not found")
-	}
+func (h *Handler) getOccupiedPositions(worldID string) map[string]bool {
+	occupied := make(map[string]bool)
 
-	maxAttempts := 100
-	for i := 0; i < maxAttempts; i++ {
-		x := rand.Intn(world.Width)
-		y := rand.Intn(world.Height)
-
-		if world.Layout[y][x] != '#' && world.Layout[y][x] != '@' {
-			if !h.isMobAtPosition(worldID, x, y) {
-				return x, y, nil
-			}
-		}
-	}
-	return 0, 0, fmt.Errorf("could not find valid spawn position after %d attempts", maxAttempts)
-}
-
-func (h *Handler) isMobAtPosition(worldID string, x, y int) bool {
 	mobs := h.Mobs.GetMobsByWorld(worldID)
 	for _, mob := range mobs {
-		if mob.X == x && mob.Y == y {
-			return true
-		}
+		key := fmt.Sprintf("%d,%d", mob.X, mob.Y)
+		occupied[key] = true
 	}
-	return false
+
+	return occupied
 }
 
 type MobUpdate struct {
@@ -326,11 +297,12 @@ type MobUpdate struct {
 	Mobs []*domain.Mob `json:"mobs"`
 }
 
-func (h *Handler) BroadcastMobUpdate(worldID string) error {
+func (h *Handler) BroadcastMobsUpdate(worldID string) error {
 	h.connMutex.RLock()
 	defer h.connMutex.RUnlock()
 
 	mobs := h.Mobs.GetMobsByWorld(worldID)
+	fmt.Printf("Broadcasting mobs update: %+v\n", mobs)
 
 	response := MobUpdate{
 		Type: "mobsUpdate",

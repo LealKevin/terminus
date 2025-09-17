@@ -41,7 +41,7 @@ func StartGameLoop(ctx context.Context, h *app.Handler) {
 				}
 			}
 
-			err := h.BroadcastMobUpdate("world1")
+			err := h.BroadcastMobsUpdate("world1")
 			if err != nil {
 				log.Printf("Failed to broadcast mob update: %v", err)
 			}
