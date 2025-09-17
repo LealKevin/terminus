@@ -23,7 +23,7 @@ func main() {
 }
 
 func StartGameLoop(ctx context.Context, h *app.Handler) {
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(time.Second * 1 / 2)
 	defer ticker.Stop()
 	for {
 		select {
