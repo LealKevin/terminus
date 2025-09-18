@@ -5,10 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"os"
-	"os/signal"
 	"sync"
-	"syscall"
 )
 
 type ConnHandler interface {
@@ -27,16 +24,13 @@ func NewServer(port string, handler ConnHandler) *Server {
 	}
 }
 
-func (s *Server) Start() {
+func (s *Server) Start(ctx context.Context) {
 	ln, err := net.Listen("tcp", s.Port)
 	if err != nil {
 		log.Fatalf("unable to start server")
 	}
 
 	fmt.Printf("listenner started on port %s \n", s.Port)
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	var wg sync.WaitGroup
 

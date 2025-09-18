@@ -149,6 +149,12 @@ func (h *Handler) HandleMessage(ctx context.Context, msg ClientMsg, cc *clientCo
 		if err != nil {
 			log.Printf("error sending world: %v", err)
 		}
+
+	case "attack":
+		err := h.HandlerPlayerAttack(ctx, msg.PlayerID, cc)
+		if err != nil {
+			log.Printf("error handling player attack: %v", err)
+		}
 	}
 }
 
@@ -226,6 +232,57 @@ func (h *Handler) HandlePlayerMove(ctx context.Context, cc *clientConn, playerID
 		Msg:    "Player moved successfully",
 		Player: player,
 	})
+}
+
+func (h *Handler) HandlerPlayerAttack(ctx context.Context, playerID string, cc *clientConn) error {
+	p := h.Player.GetPlayer(playerID)
+	if p == nil {
+		return fmt.Errorf("player not found")
+	}
+	mob, err := h.nearestMob(p, p.WorldID, p.Range)
+	if err != nil {
+		return cc.sendJson(serverMsg{
+			Type: "error",
+			Msg:  "no mob in range to attack",
+		})
+	}
+
+	p.AttackMob(mob)
+	if mob.IsAlive() {
+		h.Mobs.SaveMob(mob)
+	} else {
+		h.Mobs.DeleteMob(mob.ID)
+	}
+	h.Player.SavePlayer(p)
+
+	return nil
+}
+
+func (h *Handler) nearestMob(p *domain.Player, worldID string, attackRange int) (*domain.Mob, error) {
+	mobs := h.Mobs.GetMobsByWorld(worldID)
+
+	var nearest *domain.Mob
+	minDist := attackRange + 1
+
+	for _, mob := range mobs {
+		// Manhattan distance
+		dist := abs(p.X-mob.X) + abs(p.Y-mob.Y)
+		if dist < minDist {
+			minDist = dist
+			nearest = mob
+		}
+	}
+	if nearest == nil {
+		return nil, fmt.Errorf("no mob found")
+	}
+	return nearest, nil
+}
+
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
 
 func (h *Handler) HandleMobSpawn(ctx context.Context, worldID string, mobType string, name string) (*domain.Mob, error) {

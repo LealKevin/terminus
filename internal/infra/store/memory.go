@@ -25,7 +25,7 @@ type MobMemoryStore struct {
 func NewPlayerMemoryStore() *PlayerMemoryStore {
 	return &PlayerMemoryStore{
 		players: map[string]*domain.Player{
-			"1": {ID: "1", WorldID: "world1", X: 2, Y: 2},
+			"1": {ID: "1", WorldID: "world1", X: 2, Y: 2, Health: 100, Attack: 50, Defense: 5, Range: 1},
 		},
 	}
 }

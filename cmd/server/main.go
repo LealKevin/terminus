@@ -4,6 +4,9 @@ import (
 	"context"
 	"log"
 	"math/rand"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/LealKevin/terminus/internal/app"
@@ -17,9 +20,10 @@ func main() {
 	mobMemoryStore := store.NewMobMemoryStore()
 	handler := app.NewHandler(worldMemoryStore, playerMemoryStore, mobMemoryStore)
 	server := server.NewServer(":4200", handler)
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	go StartGameLoop(ctx, handler)
-	server.Start()
+	server.Start(ctx)
 }
 
 func StartGameLoop(ctx context.Context, h *app.Handler) {

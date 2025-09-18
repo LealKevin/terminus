@@ -75,9 +75,7 @@ func (w *World) findRandomSpawnPosition(occupiedPositions map[string]bool) (int,
 		x := rand.Intn(w.Width)
 		y := rand.Intn(w.Height)
 
-		// Check if position is valid (not a wall or player spawn)
 		if w.Layout[y][x] != '#' && w.Layout[y][x] != '@' {
-			// Check if position is not already occupied
 			key := fmt.Sprintf("%d,%d", x, y)
 			if !occupiedPositions[key] {
 				return x, y, nil

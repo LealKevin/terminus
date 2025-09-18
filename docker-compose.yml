@@ -1,0 +1,9 @@
+services:
+  game-server:
+    build: .
+    container_name: game-server
+    ports:
+      - "4200:4200"
+    restart: always
+    env_file:
+        - .env

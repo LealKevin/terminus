@@ -101,3 +101,18 @@ func (cw *connectionWrapper) sendMove(dir string) tea.Cmd {
 		return nil
 	}
 }
+
+func (cw *connectionWrapper) sendAttack() tea.Cmd {
+	return func() tea.Msg {
+		msg := ClientMsg{PlayerID: "1", Type: "attack"}
+		data, err := json.Marshal(msg)
+		if err != nil {
+			return errMsg{err}
+		}
+		_, err = cw.conn.Write(append(data, '\n'))
+		if err != nil {
+			return errMsg{err}
+		}
+		return nil
+	}
+}

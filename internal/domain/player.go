@@ -15,6 +15,7 @@ type Player struct {
 	Health  int    `json:"health"`
 	Attack  int    `json:"attack"`
 	Defense int    `json:"defense"`
+	Range   int    `json:"range"`
 }
 
 func NewPlayer(id string, x, y int) *Player {
@@ -69,6 +70,10 @@ func (p *Player) TakeDamage(damage int) {
 	if p.Health < 0 {
 		p.Health = 0
 	}
+}
+
+func (p *Player) AttackMob(mob *Mob) {
+	mob.TakeDamage(p.Attack)
 }
 
 func (p *Player) IsAlive() bool {

@@ -80,6 +80,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "n":
 			m.msgForNow = "Moving down-right"
 			return m, tea.Batch(m.conn.sendMove("SE"), m.conn.listenForServerMessages())
+		case "a":
+			m.msgForNow = "Attacking!"
+			return m, tea.Batch(m.conn.sendAttack(), m.conn.listenForServerMessages())
 		}
 
 		return m, m.conn.listenForServerMessages()
