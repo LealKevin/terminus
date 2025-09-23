@@ -69,7 +69,7 @@ func NewWorld(id string, width, height int, layout Layout) *World {
 	}
 }
 
-func (w *World) findRandomSpawnPosition(occupiedPositions map[string]bool) (int, int, error) {
+func FindRandomSpawnPosition(w *World, occupiedPositions map[string]bool) (int, int, error) {
 	maxAttempts := 100
 	for i := 0; i < maxAttempts; i++ {
 		x := rand.Intn(w.Width)
@@ -86,7 +86,7 @@ func (w *World) findRandomSpawnPosition(occupiedPositions map[string]bool) (int,
 }
 
 func (w *World) SpawnMob(mobType, name, mobID string, occupiedPositions map[string]bool) (*Mob, error) {
-	x, y, err := w.findRandomSpawnPosition(occupiedPositions)
+	x, y, err := FindRandomSpawnPosition(w, occupiedPositions)
 	if err != nil {
 		return nil, err
 	}

@@ -14,10 +14,11 @@ import (
 )
 
 type clientConn struct {
-	conn net.Conn
-	w    *bufio.Writer
-	enc  *json.Encoder
-	mu   sync.Mutex
+	conn     net.Conn
+	w        *bufio.Writer
+	enc      *json.Encoder
+	mu       sync.Mutex
+	playerID string
 }
 
 type ClientMsg struct {
@@ -86,6 +87,21 @@ func (h *Handler) HandleConnection(ctx context.Context, conn net.Conn) {
 	h.addConnection(cc)
 	defer h.removeConn(cc)
 
+	world := h.Worlds.GetWorld("world1")
+	y, x, err := domain.FindRandomSpawnPosition(world, h.getOccupiedPositions(world.ID))
+	if err != nil {
+		h.sendError(conn, fmt.Errorf("unable to find spawn position: %v", err))
+		return
+	}
+	playerID := fmt.Sprintf("player-%d", rand.Intn(10000))
+	p := h.Player.GetPlayer(playerID)
+	if p == nil {
+		p = domain.NewPlayer(fmt.Sprintf("player-%d", rand.Intn(10000)), x, y)
+	}
+
+	h.Player.SavePlayer(p)
+	cc.playerID = p.ID
+
 	reader := bufio.NewReader(cc.conn)
 
 	for {
@@ -114,9 +130,17 @@ func (h *Handler) HandleConnection(ctx context.Context, conn net.Conn) {
 }
 
 func (h *Handler) HandleMessage(ctx context.Context, msg ClientMsg, cc *clientConn) {
+	player := h.Player.GetPlayer(cc.playerID)
+	if player == nil {
+		err := fmt.Errorf("player not found")
+		cc.sendJson(serverMsg{
+			Type: "error",
+			Msg:  err.Error(),
+		})
+	}
+
 	switch msg.Type {
 	case "getPlayer":
-		player := h.Player.GetPlayer(msg.PlayerID)
 
 		if player == nil {
 			err := fmt.Errorf("player not found")
@@ -139,7 +163,7 @@ func (h *Handler) HandleMessage(ctx context.Context, msg ClientMsg, cc *clientCo
 		}
 
 	case "move":
-		err := h.HandlePlayerMove(ctx, cc, msg.PlayerID, msg.Direction)
+		err := h.HandlePlayerMove(ctx, cc, player, msg.Direction)
 		if err != nil {
 			log.Printf("error handling player move: %v", err)
 		}
@@ -151,7 +175,7 @@ func (h *Handler) HandleMessage(ctx context.Context, msg ClientMsg, cc *clientCo
 		}
 
 	case "attack":
-		err := h.HandlerPlayerAttack(ctx, msg.PlayerID, cc)
+		err := h.HandlerPlayerAttack(ctx, player, cc)
 		if err != nil {
 			log.Printf("error handling player attack: %v", err)
 		}
@@ -201,15 +225,7 @@ func (h *Handler) HandleSendWorld(ctx context.Context, cc *clientConn, worldID s
 	return cc.sendJson(response)
 }
 
-func (h *Handler) HandlePlayerMove(ctx context.Context, cc *clientConn, playerID string, dir string) error {
-	player := h.Player.GetPlayer(playerID)
-	if player == nil {
-		err := fmt.Errorf("player not found")
-		return cc.sendJson(serverMsg{
-			Type: "error",
-			Msg:  err.Error(),
-		})
-	}
+func (h *Handler) HandlePlayerMove(ctx context.Context, cc *clientConn, player *domain.Player, dir string) error {
 	world := h.Worlds.GetWorld(player.WorldID)
 	if world == nil {
 		err := fmt.Errorf("world not found")
@@ -234,8 +250,7 @@ func (h *Handler) HandlePlayerMove(ctx context.Context, cc *clientConn, playerID
 	})
 }
 
-func (h *Handler) HandlerPlayerAttack(ctx context.Context, playerID string, cc *clientConn) error {
-	p := h.Player.GetPlayer(playerID)
+func (h *Handler) HandlerPlayerAttack(ctx context.Context, p *domain.Player, cc *clientConn) error {
 	if p == nil {
 		return fmt.Errorf("player not found")
 	}

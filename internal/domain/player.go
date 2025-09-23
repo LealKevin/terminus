@@ -20,9 +20,14 @@ type Player struct {
 
 func NewPlayer(id string, x, y int) *Player {
 	return &Player{
-		ID: id,
-		X:  x,
-		Y:  y,
+		ID:      id,
+		WorldID: "world1",
+		X:       x,
+		Y:       y,
+		Health:  100,
+		Attack:  50,
+		Defense: 5,
+		Range:   10,
 	}
 }
 
@@ -78,4 +83,15 @@ func (p *Player) AttackMob(mob *Mob) {
 
 func (p *Player) IsAlive() bool {
 	return p.Health > 0
+}
+
+func (p *Player) SpawnPlayer(w *World, occupiedPositions map[string]bool) error {
+	x, y, err := FindRandomSpawnPosition(w, occupiedPositions)
+	if err != nil {
+		return err
+	}
+
+	p.X = x
+	p.Y = y
+	return nil
 }
