@@ -45,4 +45,32 @@ RETURNING id, world_id, x, y, health, attack, defense, range, created_at, update
 DELETE FROM players
 WHERE id = $1;
 
+-- name: GetMobByID :one
+SELECT id, name, world_id, x, y, type, health, attack, defense, attack_speed, symbol, created_at, updated_at
+FROM mobs
+WHERE id = $1;
 
+-- name: UpdateMob :one
+UPDATE mobs
+SET name = $2, world_id = $9, x = $3, y = $4, type = $5, health = $6, attack = $7, defense = $8, attack_speed = $10, symbol = $11, updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+RETURNING id, name, world_id, x, y, type, health, attack, defense, attack_speed, symbol, created_at, updated_at;
+
+-- name: CreateMob :one
+INSERT INTO mobs (id, name, world_id, x, y, type, health, attack, defense, attack_speed, symbol)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING id, name, world_id, x, y, type, health, attack, defense, attack_speed, symbol, created_at, updated_at;
+
+-- name: DeleteMob :exec
+DELETE FROM mobs
+WHERE id = $1;
+
+-- name: CountMobsInWorld :one
+SELECT COUNT(*) AS count
+FROM mobs
+WHERE world_id = $1;
+
+-- name: ListMobsInWorld :many
+SELECT id, name, world_id, x, y, type, health, attack, defense, attack_speed, symbol, created_at, updated_at
+FROM mobs
+WHERE world_id = $1;

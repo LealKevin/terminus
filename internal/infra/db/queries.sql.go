@@ -11,6 +11,72 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countMobsInWorld = `-- name: CountMobsInWorld :one
+SELECT COUNT(*) AS count
+FROM mobs
+WHERE world_id = $1
+`
+
+func (q *Queries) CountMobsInWorld(ctx context.Context, worldID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countMobsInWorld, worldID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const createMob = `-- name: CreateMob :one
+INSERT INTO mobs (id, name, world_id, x, y, type, health, attack, defense, attack_speed, symbol)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING id, name, world_id, x, y, type, health, attack, defense, attack_speed, symbol, created_at, updated_at
+`
+
+type CreateMobParams struct {
+	ID          pgtype.UUID
+	Name        string
+	WorldID     pgtype.UUID
+	X           int32
+	Y           int32
+	Type        string
+	Health      int32
+	Attack      int32
+	Defense     int32
+	AttackSpeed int32
+	Symbol      string
+}
+
+func (q *Queries) CreateMob(ctx context.Context, arg CreateMobParams) (Mob, error) {
+	row := q.db.QueryRow(ctx, createMob,
+		arg.ID,
+		arg.Name,
+		arg.WorldID,
+		arg.X,
+		arg.Y,
+		arg.Type,
+		arg.Health,
+		arg.Attack,
+		arg.Defense,
+		arg.AttackSpeed,
+		arg.Symbol,
+	)
+	var i Mob
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.WorldID,
+		&i.X,
+		&i.Y,
+		&i.Type,
+		&i.Health,
+		&i.Attack,
+		&i.Defense,
+		&i.AttackSpeed,
+		&i.Symbol,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const createPlayer = `-- name: CreatePlayer :one
 INSERT INTO players (id, world_id, x, y, health, attack, defense, range)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -87,6 +153,16 @@ func (q *Queries) CreateWorld(ctx context.Context, arg CreateWorldParams) (World
 	return i, err
 }
 
+const deleteMob = `-- name: DeleteMob :exec
+DELETE FROM mobs
+WHERE id = $1
+`
+
+func (q *Queries) DeleteMob(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, deleteMob, id)
+	return err
+}
+
 const deletePlayer = `-- name: DeletePlayer :exec
 DELETE FROM players
 WHERE id = $1
@@ -105,6 +181,33 @@ WHERE id = $1
 func (q *Queries) DeleteWorld(ctx context.Context, id pgtype.UUID) error {
 	_, err := q.db.Exec(ctx, deleteWorld, id)
 	return err
+}
+
+const getMobByID = `-- name: GetMobByID :one
+SELECT id, name, world_id, x, y, type, health, attack, defense, attack_speed, symbol, created_at, updated_at
+FROM mobs
+WHERE id = $1
+`
+
+func (q *Queries) GetMobByID(ctx context.Context, id pgtype.UUID) (Mob, error) {
+	row := q.db.QueryRow(ctx, getMobByID, id)
+	var i Mob
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.WorldID,
+		&i.X,
+		&i.Y,
+		&i.Type,
+		&i.Health,
+		&i.Attack,
+		&i.Defense,
+		&i.AttackSpeed,
+		&i.Symbol,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const getPlayerByID = `-- name: GetPlayerByID :one
@@ -151,6 +254,46 @@ func (q *Queries) GetWorldByID(ctx context.Context, id pgtype.UUID) (World, erro
 	return i, err
 }
 
+const listMobsInWorld = `-- name: ListMobsInWorld :many
+SELECT id, name, world_id, x, y, type, health, attack, defense, attack_speed, symbol, created_at, updated_at
+FROM mobs
+WHERE world_id = $1
+`
+
+func (q *Queries) ListMobsInWorld(ctx context.Context, worldID pgtype.UUID) ([]Mob, error) {
+	rows, err := q.db.Query(ctx, listMobsInWorld, worldID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []Mob
+	for rows.Next() {
+		var i Mob
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.WorldID,
+			&i.X,
+			&i.Y,
+			&i.Type,
+			&i.Health,
+			&i.Attack,
+			&i.Defense,
+			&i.AttackSpeed,
+			&i.Symbol,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listWorlds = `-- name: ListWorlds :many
 SELECT id, width, height, layout, created_at, updated_at
 FROM worlds
@@ -188,6 +331,60 @@ func (q *Queries) ListWorlds(ctx context.Context, arg ListWorldsParams) ([]World
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateMob = `-- name: UpdateMob :one
+UPDATE mobs
+SET name = $2, world_id = $9, x = $3, y = $4, type = $5, health = $6, attack = $7, defense = $8, attack_speed = $10, symbol = $11, updated_at = CURRENT_TIMESTAMP
+WHERE id = $1
+RETURNING id, name, world_id, x, y, type, health, attack, defense, attack_speed, symbol, created_at, updated_at
+`
+
+type UpdateMobParams struct {
+	ID          pgtype.UUID
+	Name        string
+	X           int32
+	Y           int32
+	Type        string
+	Health      int32
+	Attack      int32
+	Defense     int32
+	WorldID     pgtype.UUID
+	AttackSpeed int32
+	Symbol      string
+}
+
+func (q *Queries) UpdateMob(ctx context.Context, arg UpdateMobParams) (Mob, error) {
+	row := q.db.QueryRow(ctx, updateMob,
+		arg.ID,
+		arg.Name,
+		arg.X,
+		arg.Y,
+		arg.Type,
+		arg.Health,
+		arg.Attack,
+		arg.Defense,
+		arg.WorldID,
+		arg.AttackSpeed,
+		arg.Symbol,
+	)
+	var i Mob
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.WorldID,
+		&i.X,
+		&i.Y,
+		&i.Type,
+		&i.Health,
+		&i.Attack,
+		&i.Defense,
+		&i.AttackSpeed,
+		&i.Symbol,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }
 
 const updatePlayer = `-- name: UpdatePlayer :one

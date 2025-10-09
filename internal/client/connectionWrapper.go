@@ -3,7 +3,6 @@ package client
 import (
 	"bufio"
 	"encoding/json"
-	"fmt"
 	"net"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -29,12 +28,16 @@ func ServerConnection() (*connectionWrapper, error) {
 	encoder.SetEscapeHTML(false)
 	decoder := json.NewDecoder(conn)
 
-	return &connectionWrapper{
+	cw := &connectionWrapper{
 		conn:    conn,
 		writer:  writer,
 		encoder: encoder,
 		decoder: decoder,
-	}, nil
+	}
+
+	// Don't send initial message - let the server set up the player first
+
+	return cw, nil
 }
 
 func (cw *connectionWrapper) listenForServerMessages() tea.Cmd {
@@ -51,7 +54,6 @@ func (cw *connectionWrapper) listenForServerMessages() tea.Cmd {
 func (cw *connectionWrapper) getWorld(id string) tea.Cmd {
 	return func() tea.Msg {
 		msg := ClientMsg{Type: "getWorld", Message: id}
-		fmt.Printf("Requesting world: %+v\n", msg)
 		data, err := json.Marshal(msg)
 		if err != nil {
 			return errMsg{err}
@@ -87,9 +89,9 @@ func (cw *connectionWrapper) getPlayer(id string) tea.Cmd {
 	}
 }
 
-func (cw *connectionWrapper) sendMove(dir string) tea.Cmd {
+func (cw *connectionWrapper) sendMove(playerID, dir string) tea.Cmd {
 	return func() tea.Msg {
-		msg := ClientMsg{PlayerID: "1", Type: "move", Direction: dir}
+		msg := ClientMsg{PlayerID: playerID, Type: "move", Direction: dir}
 		data, err := json.Marshal(msg)
 		if err != nil {
 			return errMsg{err}
@@ -102,9 +104,9 @@ func (cw *connectionWrapper) sendMove(dir string) tea.Cmd {
 	}
 }
 
-func (cw *connectionWrapper) sendAttack() tea.Cmd {
+func (cw *connectionWrapper) sendAttack(playerID string) tea.Cmd {
 	return func() tea.Msg {
-		msg := ClientMsg{PlayerID: "1", Type: "attack"}
+		msg := ClientMsg{PlayerID: playerID, Type: "attack"}
 		data, err := json.Marshal(msg)
 		if err != nil {
 			return errMsg{err}

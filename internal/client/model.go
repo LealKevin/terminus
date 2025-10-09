@@ -1,8 +1,6 @@
 package client
 
 import (
-	"fmt"
-
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -75,6 +73,7 @@ type Model struct {
 	conn      connectionWrapper
 	err       error
 	msgForNow string
+	playerID  string
 }
 
 func NewModel(conn connectionWrapper) Model {
@@ -82,9 +81,8 @@ func NewModel(conn connectionWrapper) Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	fmt.Print("Connecting to server...\n")
 	var cmds []tea.Cmd
-	cmds = append(cmds, m.conn.getWorld("world1"))
+	cmds = append(cmds, m.conn.getWorld("123e4567-e89b-12d3-a456-426614174000"))
 	cmds = append(cmds, m.conn.listenForServerMessages())
 
 	return tea.Batch(cmds...)

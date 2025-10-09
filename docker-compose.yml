@@ -1,9 +1,46 @@
 services:
+  migrate:
+    image: migrate/migrate
+    container_name: game-migrate
+    volumes:
+      - ./migrations:/migrations
+    command: >
+      -path=/migrations
+      -database=postgres://${DB_USER}:${DB_PASSWORD}@db:5432/${DB_NAME}?sslmode=disable
+      up
+    depends_on:
+      - db
+    restart: "no"
+
   game-server:
     build: .
     container_name: game-server
     ports:
       - "4200:4200"
+      - "2112:2112"
     restart: always
     env_file:
         - .env
+    depends_on:
+      - migrate
+
+  db:
+    image: postgres:18
+    container_name: game-db
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "3"
+
+volumes:
+  db_data:

@@ -1,10 +1,13 @@
 package domain
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+)
 
 type PlayerStore interface {
-	GetPlayer(id string) *Player
-	SavePlayer(player *Player)
+	GetPlayer(ctx context.Context, id string) (*Player, error)
+	SavePlayer(ctx context.Context, player *Player) (*Player, error)
 }
 
 type Player struct {
@@ -21,7 +24,7 @@ type Player struct {
 func NewPlayer(id string, x, y int) *Player {
 	return &Player{
 		ID:      id,
-		WorldID: "world1",
+		WorldID: "123e4567-e89b-12d3-a456-426614174000",
 		X:       x,
 		Y:       y,
 		Health:  100,

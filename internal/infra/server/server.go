@@ -29,10 +29,15 @@ func (s *Server) Start(ctx context.Context) {
 	if err != nil {
 		log.Fatalf("unable to start server")
 	}
+	defer ln.Close()
 
 	fmt.Printf("listenner started on port %s \n", s.Port)
 
 	var wg sync.WaitGroup
+	go func() {
+		<-ctx.Done()
+		ln.Close()
+	}()
 
 	go func() {
 		for {

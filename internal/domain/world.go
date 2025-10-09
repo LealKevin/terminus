@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"strings"
@@ -36,7 +37,7 @@ var Raw string = `#####################################################
 #####################################################`
 
 type WorldStore interface {
-	GetWorld(id string) *World
+	GetWorld(ctx context.Context, id string) (*World, error)
 }
 
 type Layout [][]byte

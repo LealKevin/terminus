@@ -1,12 +1,14 @@
 package domain
 
+import "context"
+
 type MobStore interface {
-	GetMob(id string) *Mob
-	SaveMob(mob *Mob)
-	CreateMob(mob *Mob)
-	DeleteMob(id string)
-	CountMobsInWorld(worldID string) int
-	GetMobsByWorld(worldID string) []*Mob
+	GetMob(ctx context.Context, id string) (*Mob, error)
+	SaveMob(ctx context.Context, mob *Mob) (*Mob, error)
+	CreateMob(ctx context.Context, mob *Mob) (*Mob, error)
+	DeleteMob(ctx context.Context, id string) error
+	CountMobsInWorld(ctx context.Context, worldID string) (int, error)
+	GetMobsByWorld(ctx context.Context, worldID string) ([]*Mob, error)
 }
 
 type Mob struct {

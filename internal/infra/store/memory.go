@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
@@ -52,49 +53,68 @@ func (ms *WorldMemoryStore) NewWorld(id string, width, height int, layout domain
 	return world
 }
 
-func (ms *WorldMemoryStore) GetWorld(id string) *domain.World {
+func (ms *WorldMemoryStore) GetWorld(ctx context.Context, id string) (*domain.World, error) {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
-	return ms.worlds[id]
+	world, ok := ms.worlds[id]
+	if !ok {
+		return nil, fmt.Errorf("world %s not found", id)
+	}
+	return world, nil
 }
 
-func (ms *PlayerMemoryStore) GetPlayer(id string) *domain.Player {
+func (ms *PlayerMemoryStore) GetPlayer(ctx context.Context, id string) (*domain.Player, error) {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
-	return ms.players[id]
+	player, ok := ms.players[id]
+	if !ok {
+		return nil, nil
+	}
+	return player, nil
 }
 
-func (ms *PlayerMemoryStore) SavePlayer(player *domain.Player) {
+func (ms *PlayerMemoryStore) SavePlayer(ctx context.Context, player *domain.Player) (*domain.Player, error) {
+	if player == nil {
+		return nil, fmt.Errorf("player is nil")
+	}
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 	ms.players[player.ID] = player
+	return player, nil
 }
 
-func (ms *MobMemoryStore) GetMob(id string) *domain.Mob {
+func (ms *MobMemoryStore) GetMob(ctx context.Context, id string) (*domain.Mob, error) {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
-	return ms.mobs[id]
+	mob, ok := ms.mobs[id]
+	if !ok {
+		return nil, nil
+	}
+	return mob, nil
 }
 
-func (ms *MobMemoryStore) SaveMob(mob *domain.Mob) {
+func (ms *MobMemoryStore) SaveMob(ctx context.Context, mob *domain.Mob) (*domain.Mob, error) {
+	if mob == nil {
+		return nil, fmt.Errorf("mob is nil")
+	}
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 	ms.mobs[mob.ID] = mob
+	return mob, nil
 }
 
-func (ms *MobMemoryStore) CreateMob(mob *domain.Mob) {
-	ms.mu.Lock()
-	defer ms.mu.Unlock()
-	ms.mobs[mob.ID] = mob
+func (ms *MobMemoryStore) CreateMob(ctx context.Context, mob *domain.Mob) (*domain.Mob, error) {
+	return ms.SaveMob(ctx, mob)
 }
 
-func (ms *MobMemoryStore) DeleteMob(id string) {
+func (ms *MobMemoryStore) DeleteMob(ctx context.Context, id string) error {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()
 	delete(ms.mobs, id)
+	return nil
 }
 
-func (ms *MobMemoryStore) CountMobsInWorld(worldID string) int {
+func (ms *MobMemoryStore) CountMobsInWorld(ctx context.Context, worldID string) (int, error) {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
 	count := 0
@@ -103,10 +123,10 @@ func (ms *MobMemoryStore) CountMobsInWorld(worldID string) int {
 			count++
 		}
 	}
-	return count
+	return count, nil
 }
 
-func (ms *MobMemoryStore) GetMobsByWorld(worldID string) []*domain.Mob {
+func (ms *MobMemoryStore) GetMobsByWorld(ctx context.Context, worldID string) ([]*domain.Mob, error) {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()
 	var mobs []*domain.Mob
@@ -116,5 +136,5 @@ func (ms *MobMemoryStore) GetMobsByWorld(worldID string) []*domain.Mob {
 		}
 	}
 	fmt.Printf("Mobs in world %s: %+v\n", worldID, mobs)
-	return mobs
+	return mobs, nil
 }
