@@ -38,6 +38,7 @@ var Raw string = `#####################################################
 
 type WorldStore interface {
 	GetWorld(ctx context.Context, id string) (*World, error)
+	CreateWorld(ctx context.Context, id string, width, height int, layout string) (*World, error)
 }
 
 type Layout [][]byte

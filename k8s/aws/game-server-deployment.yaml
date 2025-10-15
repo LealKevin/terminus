@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  annotations:
+    kompose.cmd: kompose convert -f ../docker-compose.yml
+    kompose.version: 1.37.0 (HEAD)
+  labels:
+    io.kompose.service: game-server
+  name: game-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      io.kompose.service: game-server
+  template:
+    metadata:
+      annotations:
+        kompose.cmd: kompose convert -f ../docker-compose.yml
+        kompose.version: 1.37.0 (HEAD)
+      labels:
+        io.kompose.service: game-server
+    spec:
+      initContainers:
+        - name: migrate
+          image: migrate/migrate
+          envFrom:
+            - secretRef:
+                name: db-connection-secret
+          args:
+            - -path=/migrations
+            - -database=$(DATABASE_URL)
+            - up
+          volumeMounts:
+            - mountPath: /migrations
+              name: migrate-cm0
+      containers:
+        - envFrom:
+            - configMapRef:
+                name: env
+            - secretRef:
+                name: db-secret
+            - secretRef:
+                name: db-connection-secret
+          image: mizuba74/terminus-game-server:latest
+          name: game-server
+          ports:
+            - containerPort: 4200
+              protocol: TCP
+            - containerPort: 2112
+              protocol: TCP
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+      volumes:
+        - configMap:
+            name: migrate-cm0
+          name: migrate-cm0
+      restartPolicy: Always

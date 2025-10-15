@@ -1,6 +1,8 @@
 package client
 
 import (
+	"os"
+	
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -81,8 +83,13 @@ func NewModel(conn connectionWrapper) Model {
 }
 
 func (m Model) Init() tea.Cmd {
+	worldID := os.Getenv("WORLD_ID")
+	if worldID == "" {
+		worldID = "123e4567-e89b-12d3-a456-426614174000" // fallback
+	}
+	
 	var cmds []tea.Cmd
-	cmds = append(cmds, m.conn.getWorld("123e4567-e89b-12d3-a456-426614174000"))
+	cmds = append(cmds, m.conn.getWorld(worldID))
 	cmds = append(cmds, m.conn.listenForServerMessages())
 
 	return tea.Batch(cmds...)

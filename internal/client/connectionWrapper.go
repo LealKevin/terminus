@@ -3,7 +3,9 @@ package client
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"net"
+	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -16,8 +18,17 @@ type connectionWrapper struct {
 }
 
 func ServerConnection() (*connectionWrapper, error) {
-	port := "4200"
-	addr := "localhost:" + port
+	host := os.Getenv("SERVER_HOST")
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	
+	port := os.Getenv("SERVER_PORT")
+	if port == "" {
+		port = "4200"
+	}
+	
+	addr := fmt.Sprintf("%s:%s", host, port)
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
 		panic(err)

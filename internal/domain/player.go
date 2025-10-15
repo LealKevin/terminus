@@ -3,6 +3,7 @@ package domain
 import (
 	"context"
 	"fmt"
+	"os"
 )
 
 type PlayerStore interface {
@@ -22,9 +23,14 @@ type Player struct {
 }
 
 func NewPlayer(id string, x, y int) *Player {
+	worldID := os.Getenv("WORLD_ID")
+	if worldID == "" {
+		worldID = "123e4567-e89b-12d3-a456-426614174000" // fallback
+	}
+	
 	return &Player{
 		ID:      id,
-		WorldID: "123e4567-e89b-12d3-a456-426614174000",
+		WorldID: worldID,
 		X:       x,
 		Y:       y,
 		Health:  100,

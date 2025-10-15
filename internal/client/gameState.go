@@ -46,8 +46,8 @@ func (gs *GameState) Render() string {
 		if len(display) > 0 {
 			worldWidth = len(display[0])
 		}
-		fmt.Printf("DEBUG: Player not drawn - pos (%d, %d), world size (%d, %d)\n",
-			gs.player.X, gs.player.Y, worldWidth, len(display))
+		fmt.Printf("DEBUG: Player not drawn - pos (%d, %d), world size (%d, %d)\n occupied char: '%c'\n",
+			gs.player.X, gs.player.Y, worldWidth, len(display), display[gs.player.X][gs.player.Y])
 	}
 
 	var result string

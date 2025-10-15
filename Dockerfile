@@ -10,5 +10,5 @@ RUN go build -o main .
 FROM alpine:latest AS runtime
 WORKDIR /root
 COPY --from=builder /app/cmd/server/main ./
-EXPOSE 4200
+EXPOSE 4200 2112
 CMD ["./main"]

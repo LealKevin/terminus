@@ -45,6 +45,14 @@ func NewMobMemoryStore() *MobMemoryStore {
 	}
 }
 
+func (ms *WorldMemoryStore) CreateWorld(ctx context.Context, id string, width, height int, layout string) (*domain.World, error) {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	world := domain.NewWorld(id, width, height, domain.ConvertLayout(layout))
+	ms.worlds[id] = world
+	return world, nil
+}
+
 func (ms *WorldMemoryStore) NewWorld(id string, width, height int, layout domain.Layout) *domain.World {
 	ms.mu.Lock()
 	defer ms.mu.Unlock()

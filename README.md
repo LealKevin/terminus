@@ -1,104 +1,97 @@
 # Terminus
 
-A real-time multiplayer game server built with Go, featuring WebSocket connections and terminal-based clients.
+A high-performance multiplayer game server built with Go, featuring cloud-native deployment, monitoring, and auto-scaling capabilities.
 
 ## Overview
 
-Terminus is a multiplayer game where players navigate through a world grid, encounter mobs, and interact in real-time. The game features automatic mob spawning, movement mechanics, and a clean separation between server and client components.
+Terminus is a real-time multiplayer game server capable of handling 5000+ concurrent connections. Players navigate through a world grid, encounter mobs, and interact in real-time. The architecture demonstrates modern cloud deployment practices with comprehensive monitoring and performance optimization.
+
+## Key Features
+
+- **High Performance**: Optimized to handle 5000+ concurrent players with 5ms latency
+- **Cloud Native**: Full Kubernetes deployment with auto-scaling on AWS EKS
+- **Monitoring**: Complete observability stack with Prometheus and Grafana
+- **Real-time Gaming**: WebSocket-based multiplayer with live combat and movement
+- **Performance Optimization**: Strategic caching achieving 4x latency improvement
+- **Load Testing**: Automated bot framework for performance validation
 
 ## Architecture
 
-- **Server**: WebSocket-based game server with real-time player and mob updates
-- **Client**: Terminal UI using Bubble Tea for interactive gameplay
-- **Storage**: PostgreSQL with SQLC for type-safe database operations
-- **Game Loop**: Automated mob spawning and movement every 500ms
+- **Server**: WebSocket-based game server with performance metrics
+- **Client**: Terminal UI with Bubble Tea for interactive gameplay
+- **Storage**: PostgreSQL with connection pooling and cached operations
+- **Orchestration**: Kubernetes with StatefulSets and horizontal auto-scaling
+- **Monitoring**: Prometheus metrics with Grafana dashboards
+- **Cloud**: AWS EKS deployment with Network Load Balancers
 
-## Features
+## Technology Stack
 
-- Real-time multiplayer gameplay
-- Automatic mob spawning and AI movement
-- Player movement and combat system
-- WebSocket communication
-- PostgreSQL persistence
-- Docker containerization
+- **Backend**: Go 1.24+, WebSockets, PostgreSQL
+- **Container**: Docker with multi-platform builds
+- **Orchestration**: Kubernetes, StatefulSets, HPA
+- **Cloud**: AWS EKS, ECR, Network Load Balancer
+- **Monitoring**: Prometheus, Grafana, kube-state-metrics
+- **Performance**: Strategic caching, connection pooling
 
 ## Project Structure
 
 ```
 terminus/
 ├── cmd/
-│   ├── server/         # Game server entrypoint
-│   └── client/         # Terminal client
+│   ├── server/         # Game server with metrics
+│   ├── client/         # Terminal client
+│   └── botloader/      # Load testing framework
 ├── internal/
-│   ├── app/           # Application handlers
+│   ├── app/           # Application handlers with caching
 │   ├── client/        # Client-side logic
 │   ├── domain/        # Business logic (Player, World, Mob)
 │   └── infra/         # Infrastructure layer
 │       ├── db/        # Database models and queries
 │       ├── server/    # WebSocket server
-│       └── store/     # Data persistence layer
+│       └── store/     # Data persistence with caching
+├── k8s/               # Kubernetes manifests
+│   ├── aws/          # AWS EKS specific configs
+│   └── minikube/     # Local development
 └── docker-compose.yml
 ```
 
-## Getting Started
+## Quick Start
 
-### Prerequisites
-
-- Go 1.24+
-- PostgreSQL
-- Docker (optional)
-
-### Running with Docker
+### Local Development
 
 ```bash
 docker-compose up
 ```
 
-### Manual Setup
+### Kubernetes Deployment
 
-1. Start the server:
 ```bash
-go run cmd/server/main.go
+kubectl apply -f k8s/
 ```
 
-2. Connect with client:
+### Load Testing
+
 ```bash
-go run cmd/client/main.go
+go run cmd/botloader/main.go -bots=1000 -duration=300s
 ```
-
-## Database
-
-The project uses SQLC for type-safe database operations. Models include:
-
-- **Player**: Position, health, attack, defense stats
-- **World**: Grid layout with dimensions
-- **Mob**: AI-controlled entities with movement and combat
-
-## Game Mechanics
-
-- Players spawn randomly in valid world positions
-- Mobs spawn automatically (max 5 per world)
-- Movement uses 8-directional controls (N, S, E, W, NE, NW, SE, SW)
-- Combat system with attack/defense calculations
-- Real-time updates broadcast to all connected clients
-
-## Development Roadmap
-
-### Upcoming Features
-- Kubernetes deployment configurations
-- Prometheus metrics collection
-- Grafana dashboards for monitoring
-- Enhanced game mechanics
-- Multi-world support
-
-### Monitoring Stack
-- **Prometheus**: Metrics collection for game statistics
-- **Grafana**: Visualization dashboards
-- **Kubernetes**: Container orchestration and scaling
 
 ## Configuration
 
-Server runs on port 4200 by default. Database connection and other settings can be configured via environment variables.
+Copy `.env.example` to `.env` and configure:
+
+```bash
+DATABASE_URL=postgres://terminus:your_password@db:5432/terminus?sslmode=disable
+WORLD_ID=123e4567-e89b-12d3-a456-426614174000
+SERVER_HOST=your-loadbalancer-endpoint.elb.your-region.amazonaws.com
+SERVER_PORT=4200
+```
+
+## Performance Achievements
+
+- **Latency**: Reduced from 20ms to 5ms through caching optimization
+- **Capacity**: Increased from 350 to 5000+ concurrent connections
+- **Auto-scaling**: Kubernetes HPA based on CPU/memory metrics
+- **Monitoring**: Real-time metrics with custom Grafana dashboards
 
 ## Contributing
 

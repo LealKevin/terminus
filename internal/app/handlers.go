@@ -8,6 +8,7 @@ import (
 	"log"
 	"math/rand"
 	"net"
+	"os"
 	"sync"
 	"time"
 
@@ -18,10 +19,26 @@ import (
 )
 
 var (
+	totalMessagesReceived = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "terminus_messages_received_total",
+		Help: "The total number of messages received from clients",
+	}, []string{"type"})
+
+	totalMessagesErrors = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "terminus_messages_errors_total",
+		Help: "The total number of errors processing messages from clients",
+	}, []string{"type"})
+
+	messageProcessingDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Name: "terminus_message_processing_duration_seconds",
+		Help: "Duration of message processing",
+	}, []string{"type"})
+
 	playersOnline = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "terminus_players_online",
 		Help: "Total of players online",
 	})
+
 	playerMoveDuration = promauto.NewHistogram(prometheus.HistogramOpts{
 		Name: "terminus_player_move_duration_seconds",
 		Help: "Latency of HandlePlayerMove",
@@ -51,14 +68,30 @@ var (
 		Name: "terminus_player_attack_in_flight",
 		Help: "In-flight player attack operations",
 	})
+
+	mobMoves = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "terminus_mob_moves_total",
+		Help: "Total mob moves",
+	})
+
+	mobMoveDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name: "terminus_mob_move_duration_seconds",
+		Help: "Latency of HandleMobMove",
+	})
+
+	mobMoveInFlight = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "terminus_mob_move_in_flight",
+		Help: "In-flight mob move operations",
+	})
 )
 
 type clientConn struct {
-	conn     net.Conn
-	w        *bufio.Writer
-	enc      *json.Encoder
-	mu       sync.Mutex
-	playerID string
+	conn   net.Conn
+	w      *bufio.Writer
+	enc    *json.Encoder
+	mu     sync.Mutex
+	player *domain.Player
+	dirty  bool
 }
 
 type ClientMsg struct {
@@ -81,6 +114,9 @@ type Handler struct {
 
 	connections map[*clientConn]bool
 	connMutex   sync.RWMutex
+
+	cachedWorld *domain.World
+	worldMutex  sync.RWMutex
 }
 
 func NewHandler(stores StoreProvider) *Handler {
@@ -113,6 +149,30 @@ func (h *Handler) removeConn(conn *clientConn) {
 	delete(h.connections, conn)
 }
 
+func (h *Handler) getCachedWorld(ctx context.Context, worldID string) (*domain.World, error) {
+	h.worldMutex.RLock()
+	if h.cachedWorld != nil && h.cachedWorld.ID == worldID {
+		world := h.cachedWorld
+		h.worldMutex.RUnlock()
+		return world, nil
+	}
+	h.worldMutex.RUnlock()
+
+	h.worldMutex.Lock()
+	defer h.worldMutex.Unlock()
+
+	if h.cachedWorld != nil && h.cachedWorld.ID == worldID {
+		return h.cachedWorld, nil
+	}
+
+	world, err := h.Worlds.GetWorld(ctx, worldID)
+	if err != nil {
+		return nil, err
+	}
+	h.cachedWorld = world
+	return world, nil
+}
+
 func (cc *clientConn) sendJson(v any) error {
 	cc.mu.Lock()
 	defer cc.mu.Unlock()
@@ -133,7 +193,12 @@ func (h *Handler) HandleConnection(ctx context.Context, conn net.Conn) {
 	h.addConnection(cc)
 	defer h.removeConn(cc)
 
-	world, err := h.Worlds.GetWorld(ctx, "123e4567-e89b-12d3-a456-426614174000")
+	worldID := os.Getenv("WORLD_ID")
+	if worldID == "" {
+		worldID = "123e4567-e89b-12d3-a456-426614174000" // fallback
+	}
+	
+	world, err := h.getCachedWorld(ctx, worldID)
 	if err != nil {
 		h.sendError(conn, fmt.Errorf("unable to load world: %v", err))
 		return
@@ -169,7 +234,7 @@ func (h *Handler) HandleConnection(ctx context.Context, conn net.Conn) {
 		h.sendError(conn, fmt.Errorf("unable to persist player: %v", err))
 		return
 	}
-	cc.playerID = saved.ID
+	cc.player = saved
 
 	err = cc.sendJson(serverMsg{
 		Type:   "playerUpdate",
@@ -214,61 +279,52 @@ func (h *Handler) HandleConnection(ctx context.Context, conn net.Conn) {
 }
 
 func (h *Handler) HandleMessage(ctx context.Context, msg ClientMsg, cc *clientConn) {
+	start := time.Now()
+	totalMessagesReceived.WithLabelValues(msg.Type).Inc()
+	defer func() {
+		messageProcessingDuration.WithLabelValues(msg.Type).Observe(time.Since(start).Seconds())
+	}()
+
 	if msg.Type == "getPlayer" {
-		if cc.playerID != "" {
-			player, err := h.Player.GetPlayer(ctx, cc.playerID)
-			if err != nil {
-				log.Printf("error retrieving player %s: %v", cc.playerID, err)
-				cc.sendJson(serverMsg{Type: "error", Msg: "player lookup failed"})
-				return
-			}
-			if player != nil {
-				cc.sendJson(serverMsg{
-					Type:   "playerUpdate",
-					Msg:    "Player retrieved successfully",
-					Player: player,
-				})
-			} else {
-				cc.sendJson(serverMsg{Type: "error", Msg: "player not found"})
-			}
+		if cc.player != nil && cc.player.ID != "" {
+			cc.sendJson(serverMsg{
+				Type:   "playerUpdate",
+				Msg:    "Player retrieved successfully",
+				Player: cc.player,
+			})
 		} else {
 			cc.sendJson(serverMsg{Type: "error", Msg: "connection not properly initialized - player created during connection setup"})
 		}
 		return
 	}
 
-	player, err := h.Player.GetPlayer(ctx, cc.playerID)
-	if err != nil {
-		log.Printf("error retrieving player %s: %v", cc.playerID, err)
-		cc.sendJson(serverMsg{Type: "error", Msg: "player lookup failed"})
+	if cc.player == nil {
+		cc.sendJson(serverMsg{Type: "error", Msg: "player not initialized"})
 		return
 	}
-	if player == nil {
-		err := fmt.Errorf("player not found")
-		cc.sendJson(serverMsg{
-			Type: "error",
-			Msg:  err.Error(),
-		})
-		return
-	}
+
+	player := cc.player
 
 	switch msg.Type {
 	case "move":
 		err := h.HandlePlayerMove(ctx, cc, player, msg.Direction)
 		if err != nil {
 			log.Printf("error handling player move: %v", err)
+			totalMessagesErrors.WithLabelValues(msg.Type).Inc()
 		}
 
 	case "getWorld":
 		err := h.HandleSendWorld(ctx, cc, msg.Message)
 		if err != nil {
 			log.Printf("error sending world: %v", err)
+			totalMessagesErrors.WithLabelValues(msg.Type).Inc()
 		}
 
 	case "attack":
 		err := h.HandlerPlayerAttack(ctx, player, cc)
 		if err != nil {
 			log.Printf("error handling player attack: %v", err)
+			totalMessagesErrors.WithLabelValues(msg.Type).Inc()
 		}
 	}
 }
@@ -292,21 +348,9 @@ func (h *Handler) sendError(conn net.Conn, err error) error {
 	return nil
 }
 
-func (h *Handler) sendSuccess(conn net.Conn, msg string) error {
-	response := serverMsg{
-		Type: "success",
-		Msg:  msg,
-	}
-	err := json.NewEncoder(conn).Encode(response)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 func (h *Handler) HandleSendWorld(ctx context.Context, cc *clientConn, worldID string) error {
 	fmt.Printf("Sending world %s\n", worldID)
-	world, err := h.Worlds.GetWorld(ctx, worldID)
+	world, err := h.getCachedWorld(ctx, worldID)
 	if err != nil {
 		return err
 	}
@@ -335,7 +379,7 @@ func (h *Handler) HandlePlayerMove(ctx context.Context, cc *clientConn, player *
 	if player == nil {
 		return fmt.Errorf("player is nil")
 	}
-	world, err := h.Worlds.GetWorld(ctx, player.WorldID)
+	world, err := h.getCachedWorld(ctx, player.WorldID)
 	if err != nil {
 		return cc.sendJson(serverMsg{
 			Type: "error",
@@ -357,14 +401,7 @@ func (h *Handler) HandlePlayerMove(ctx context.Context, cc *clientConn, player *
 		})
 	}
 
-	_, err = h.Player.SavePlayer(ctx, player)
-	if err != nil {
-		return cc.sendJson(serverMsg{
-			Type: "error",
-			Msg:  err.Error(),
-		})
-	}
-
+	cc.dirty = true
 	return cc.sendJson(serverMsg{
 		Type:   "playerUpdate",
 		Msg:    "Player moved successfully",
@@ -409,13 +446,7 @@ func (h *Handler) HandlerPlayerAttack(ctx context.Context, p *domain.Player, cc 
 		}
 	}
 
-	if _, err := h.Player.SavePlayer(ctx, p); err != nil {
-		return cc.sendJson(serverMsg{
-			Type: "error",
-			Msg:  err.Error(),
-		})
-	}
-
+	cc.dirty = true
 	return nil
 }
 
@@ -450,7 +481,7 @@ func abs(x int) int {
 }
 
 func (h *Handler) HandleMobSpawn(ctx context.Context, worldID string, mobType string, name string) (*domain.Mob, error) {
-	world, err := h.Worlds.GetWorld(ctx, worldID)
+	world, err := h.getCachedWorld(ctx, worldID)
 	if err != nil {
 		return nil, err
 	}
@@ -479,6 +510,14 @@ func (h *Handler) HandleMobSpawn(ctx context.Context, worldID string, mobType st
 }
 
 func (h *Handler) HandleMobMove(ctx context.Context, mobID string) error {
+	start := time.Now()
+	mobMoveInFlight.Inc()
+	mobMoves.Inc()
+
+	defer func() {
+		mobMoveDuration.Observe((time.Since(start).Seconds()))
+		mobMoveInFlight.Dec()
+	}()
 	mob, err := h.Mobs.GetMob(ctx, mobID)
 	if err != nil {
 		return err
@@ -486,7 +525,7 @@ func (h *Handler) HandleMobMove(ctx context.Context, mobID string) error {
 	if mob == nil {
 		return fmt.Errorf("mob not found")
 	}
-	world, err := h.Worlds.GetWorld(ctx, mob.WorldID)
+	world, err := h.getCachedWorld(ctx, mob.WorldID)
 	if err != nil {
 		return err
 	}
@@ -570,4 +609,29 @@ func (h *Handler) BroadcastMobsUpdate(ctx context.Context, worldID string) error
 		h.removeConn(conn)
 	}
 	return nil
+}
+
+func (h *Handler) SaveDirtyPlayers(ctx context.Context) error {
+	t := time.NewTicker(2 * time.Second)
+	defer t.Stop()
+
+	for {
+		select {
+		case <-t.C:
+			h.connMutex.RLock()
+			for conn := range h.connections {
+				if conn.dirty && conn.player != nil && conn.player.ID != "" {
+					conn.dirty = false
+					_, err := h.Player.SavePlayer(ctx, conn.player)
+					if err != nil {
+						log.Printf("failed to save player %s: %v", conn.player.ID, err)
+						continue
+					}
+				}
+			}
+			h.connMutex.RUnlock()
+		case <-ctx.Done():
+			return nil
+		}
+	}
 }

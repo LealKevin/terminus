@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    kompose.cmd: kompose convert -f ../docker-compose.yml
+    kompose.version: 1.37.0 (HEAD)
+  labels:
+    io.kompose.service: game-server
+  name: game-server
+spec:
+  type: NodePort
+  ports:
+    - name: "game"
+      port: 4200
+      targetPort: 4200
+      nodePort: 30200
+    - name: "metrics"
+      port: 2112
+      targetPort: 2112
+  selector:
+    io.kompose.service: game-server

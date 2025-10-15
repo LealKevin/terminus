@@ -6,9 +6,12 @@ import (
 
 	"github.com/LealKevin/terminus/internal/client"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	// Load .env file
+	godotenv.Load()
 	conn, err := client.ServerConnection()
 	if err != nil {
 		panic(err)
