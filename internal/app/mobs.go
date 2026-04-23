@@ -80,15 +80,19 @@ func (m *MobManager) Snapshot(worldID string) []*domain.Mob {
 	return out
 }
 
-func (m *MobManager) OccupiedPositions(worldID string) map[string]bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+func (m *MobManager) occupiedLocked(worldID string) map[string]bool {
 	mobs := m.inWorldLocked(worldID)
 	occupied := make(map[string]bool, len(mobs))
 	for _, mob := range mobs {
 		occupied[fmt.Sprintf("%d,%d", mob.X, mob.Y)] = true
 	}
 	return occupied
+}
+
+func (m *MobManager) OccupiedPositions(worldID string) map[string]bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.occupiedLocked(worldID)
 }
 
 func (m *MobManager) Spawn(ctx context.Context, worldID, mobType, name string) (*domain.Mob, error) {
@@ -101,13 +105,7 @@ func (m *MobManager) Spawn(ctx context.Context, worldID, mobType, name string) (
 	}
 
 	m.mu.Lock()
-	occupied := make(map[string]bool, len(m.mobs))
-	for _, mob := range m.mobs {
-		if mob.WorldID != worldID {
-			continue
-		}
-		occupied[fmt.Sprintf("%d,%d", mob.X, mob.Y)] = true
-	}
+	occupied := m.occupiedLocked(worldID)
 	mobID := uuid.New().String()
 	mob, err := world.SpawnMob(mobType, name, mobID, occupied)
 	if err != nil {
