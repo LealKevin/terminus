@@ -8,7 +8,6 @@ import (
 	"log"
 	"math/rand"
 	"net"
-	"os"
 	"sync"
 	"time"
 
@@ -121,10 +120,10 @@ type Handler struct {
 	cachedWorld *domain.World
 	worldMutex  sync.RWMutex
 
-	mobsMu      sync.RWMutex
-	mobs        map[string]*domain.Mob
-	mobDirty    map[string]bool
-	mobDeleted  map[string]bool
+	mobsMu     sync.RWMutex
+	mobs       map[string]*domain.Mob
+	mobDirty   map[string]struct{}
+	mobDeleted map[string]struct{}
 }
 
 func NewHandler(stores StoreProvider) *Handler {
@@ -134,8 +133,8 @@ func NewHandler(stores StoreProvider) *Handler {
 		Mobs:        stores.Mobs(),
 		connections: make(map[*clientConn]struct{}),
 		mobs:        make(map[string]*domain.Mob),
-		mobDirty:    make(map[string]bool),
-		mobDeleted:  make(map[string]bool),
+		mobDirty:    make(map[string]struct{}),
+		mobDeleted:  make(map[string]struct{}),
 	}
 }
 
@@ -210,12 +209,7 @@ func (h *Handler) HandleConnection(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 	fmt.Printf("New connection from: %v \n", conn.RemoteAddr().String())
 
-	worldID := os.Getenv("WORLD_ID")
-	if worldID == "" {
-		worldID = "123e4567-e89b-12d3-a456-426614174000"
-	}
-
-	world, err := h.getCachedWorld(ctx, worldID)
+	world, err := h.getCachedWorld(ctx, domain.ResolveWorldID())
 	if err != nil {
 		h.sendError(conn, fmt.Errorf("unable to load world: %v", err))
 		return
@@ -461,11 +455,11 @@ func (h *Handler) HandlePlayerAttack(ctx context.Context, cc *clientConn) error 
 
 	p.AttackMob(mob)
 	if mob.IsAlive() {
-		h.mobDirty[mob.ID] = true
+		h.mobDirty[mob.ID] = struct{}{}
 	} else {
 		delete(h.mobs, mob.ID)
 		delete(h.mobDirty, mob.ID)
-		h.mobDeleted[mob.ID] = true
+		h.mobDeleted[mob.ID] = struct{}{}
 	}
 	h.mobsMu.Unlock()
 
@@ -475,13 +469,20 @@ func (h *Handler) HandlePlayerAttack(ctx context.Context, cc *clientConn) error 
 	return nil
 }
 
+func (h *Handler) mobsInWorldLocked(worldID string) []*domain.Mob {
+	out := make([]*domain.Mob, 0, len(h.mobs))
+	for _, m := range h.mobs {
+		if m.WorldID == worldID {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 func (h *Handler) nearestMobLocked(p *domain.Player, worldID string, attackRange int) *domain.Mob {
 	var nearest *domain.Mob
 	minDist := attackRange + 1
-	for _, mob := range h.mobs {
-		if mob.WorldID != worldID {
-			continue
-		}
+	for _, mob := range h.mobsInWorldLocked(worldID) {
 		dist := abs(p.X-mob.X) + abs(p.Y-mob.Y)
 		if dist < minDist {
 			minDist = dist
@@ -511,26 +512,13 @@ func (h *Handler) LoadMobs(ctx context.Context, worldID string) error {
 	return nil
 }
 
-func (h *Handler) MobCountInWorld(worldID string) int {
-	h.mobsMu.RLock()
-	defer h.mobsMu.RUnlock()
-	n := 0
-	for _, m := range h.mobs {
-		if m.WorldID == worldID {
-			n++
-		}
-	}
-	return n
-}
-
 func (h *Handler) MobIDsInWorld(worldID string) []string {
 	h.mobsMu.RLock()
 	defer h.mobsMu.RUnlock()
-	ids := make([]string, 0, len(h.mobs))
-	for id, m := range h.mobs {
-		if m.WorldID == worldID {
-			ids = append(ids, id)
-		}
+	mobs := h.mobsInWorldLocked(worldID)
+	ids := make([]string, 0, len(mobs))
+	for _, m := range mobs {
+		ids = append(ids, m.ID)
 	}
 	return ids
 }
@@ -583,14 +571,7 @@ func (h *Handler) HandleMobMove(ctx context.Context, mobID string) error {
 		mobMoveInFlight.Dec()
 	}()
 
-	h.mobsMu.RLock()
-	mob, ok := h.mobs[mobID]
-	h.mobsMu.RUnlock()
-	if !ok || mob == nil {
-		return fmt.Errorf("mob not found")
-	}
-
-	world, err := h.getCachedWorld(ctx, mob.WorldID)
+	world, err := h.getCachedWorld(ctx, domain.ResolveWorldID())
 	if err != nil {
 		return err
 	}
@@ -598,22 +579,22 @@ func (h *Handler) HandleMobMove(ctx context.Context, mobID string) error {
 		return fmt.Errorf("world not found")
 	}
 
-	directions := []string{"N", "S", "E", "W", "NE", "NW", "SE", "SW"}
-	direction := directions[rand.Intn(len(directions))]
+	direction := mobDirections[rand.Intn(len(mobDirections))]
 
 	h.mobsMu.Lock()
-	if _, ok := h.mobs[mobID]; !ok {
-		h.mobsMu.Unlock()
-		return nil
+	defer h.mobsMu.Unlock()
+	mob, ok := h.mobs[mobID]
+	if !ok {
+		return fmt.Errorf("mob not found")
 	}
 	if err := mob.Move(direction, world); err != nil {
-		h.mobsMu.Unlock()
 		return err
 	}
-	h.mobDirty[mobID] = true
-	h.mobsMu.Unlock()
+	h.mobDirty[mobID] = struct{}{}
 	return nil
 }
+
+var mobDirections = []string{"N", "S", "E", "W", "NE", "NW", "SE", "SW"}
 
 func (h *Handler) HandleMobDespawn(ctx context.Context, mobID string) error {
 	h.mobsMu.Lock()
@@ -624,7 +605,7 @@ func (h *Handler) HandleMobDespawn(ctx context.Context, mobID string) error {
 	}
 	delete(h.mobs, mobID)
 	delete(h.mobDirty, mobID)
-	h.mobDeleted[mobID] = true
+	h.mobDeleted[mobID] = struct{}{}
 	worldID := mob.WorldID
 	h.mobsMu.Unlock()
 
@@ -633,11 +614,9 @@ func (h *Handler) HandleMobDespawn(ctx context.Context, mobID string) error {
 }
 
 func (h *Handler) occupiedPositionsLocked(worldID string) map[string]bool {
-	occupied := make(map[string]bool)
-	for _, mob := range h.mobs {
-		if mob.WorldID != worldID {
-			continue
-		}
+	mobs := h.mobsInWorldLocked(worldID)
+	occupied := make(map[string]bool, len(mobs))
+	for _, mob := range mobs {
 		occupied[fmt.Sprintf("%d,%d", mob.X, mob.Y)] = true
 	}
 	return occupied
@@ -656,11 +635,9 @@ type MobUpdate struct {
 
 func (h *Handler) BroadcastMobsUpdate(ctx context.Context, worldID string) error {
 	h.mobsMu.RLock()
-	mobs := make([]*domain.Mob, 0, len(h.mobs))
-	for _, m := range h.mobs {
-		if m.WorldID != worldID {
-			continue
-		}
+	live := h.mobsInWorldLocked(worldID)
+	mobs := make([]*domain.Mob, 0, len(live))
+	for _, m := range live {
 		snap := *m
 		mobs = append(mobs, &snap)
 	}
@@ -732,6 +709,10 @@ func (h *Handler) FlushMobs(ctx context.Context) error {
 
 func (h *Handler) flushMobsOnce(ctx context.Context) {
 	h.mobsMu.Lock()
+	if len(h.mobDirty) == 0 && len(h.mobDeleted) == 0 {
+		h.mobsMu.Unlock()
+		return
+	}
 	dirtyIDs := make([]string, 0, len(h.mobDirty))
 	for id := range h.mobDirty {
 		dirtyIDs = append(dirtyIDs, id)
@@ -762,7 +743,7 @@ func (h *Handler) flushMobsOnce(ctx context.Context) {
 			log.Printf("failed to save mob %s: %v", s.ID, err)
 			h.mobsMu.Lock()
 			if _, ok := h.mobs[s.ID]; ok {
-				h.mobDirty[s.ID] = true
+				h.mobDirty[s.ID] = struct{}{}
 			}
 			h.mobsMu.Unlock()
 		}
@@ -771,7 +752,7 @@ func (h *Handler) flushMobsOnce(ctx context.Context) {
 		if err := h.Mobs.DeleteMob(ctx, id); err != nil {
 			log.Printf("failed to delete mob %s: %v", id, err)
 			h.mobsMu.Lock()
-			h.mobDeleted[id] = true
+			h.mobDeleted[id] = struct{}{}
 			h.mobsMu.Unlock()
 		}
 	}

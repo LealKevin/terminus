@@ -52,10 +52,7 @@ func main() {
 		log.Fatalf("Failed to initialize world: %v", err)
 	}
 
-	worldID := os.Getenv("WORLD_ID")
-	if worldID == "" {
-		worldID = "123e4567-e89b-12d3-a456-426614174000"
-	}
+	worldID := domain.ResolveWorldID()
 	if err := handler.LoadMobs(ctx, worldID); err != nil {
 		log.Fatalf("Failed to load mobs: %v", err)
 	}
@@ -84,16 +81,14 @@ func StartGameLoop(ctx context.Context, h *app.Handler, worldID string) {
 	for {
 		select {
 		case <-ticker.C:
-			mobsCount := h.MobCountInWorld(worldID)
-			if mobsCount < 5 {
-				for i := 0; i < 5-mobsCount; i++ {
-					if _, err := h.HandleMobSpawn(ctx, worldID, "Goblin", "Goblin"); err != nil {
-						log.Printf("Failed to spawn mob: %v", err)
-					}
+			ids := h.MobIDsInWorld(worldID)
+			for i := len(ids); i < 5; i++ {
+				if _, err := h.HandleMobSpawn(ctx, worldID, "Goblin", "Goblin"); err != nil {
+					log.Printf("Failed to spawn mob: %v", err)
 				}
 			}
 
-			for _, id := range h.MobIDsInWorld(worldID) {
+			for _, id := range ids {
 				if rand.Float32() < 0.5 {
 					if err := h.HandleMobMove(ctx, id); err != nil {
 						log.Printf("Failed to move mob %s: %v", id, err)
@@ -111,10 +106,7 @@ func StartGameLoop(ctx context.Context, h *app.Handler, worldID string) {
 }
 
 func initializeWorld(ctx context.Context, h *app.Handler) error {
-	worldID := os.Getenv("WORLD_ID")
-	if worldID == "" {
-		worldID = "123e4567-e89b-12d3-a456-426614174000"
-	}
+	worldID := domain.ResolveWorldID()
 
 	_, err := h.Worlds.GetWorld(ctx, worldID)
 	if err == nil {
