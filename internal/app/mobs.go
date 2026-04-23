@@ -180,7 +180,7 @@ func (m *MobManager) Despawn(mobID string) error {
 	return nil
 }
 
-func (m *MobManager) DamageNearest(p *domain.Player) *domain.Mob {
+func (m *MobManager) DamageNearest(p *domain.Player) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -197,7 +197,7 @@ func (m *MobManager) DamageNearest(p *domain.Player) *domain.Mob {
 		}
 	}
 	if nearest == nil {
-		return nil
+		return false
 	}
 
 	p.AttackMob(nearest)
@@ -208,7 +208,7 @@ func (m *MobManager) DamageNearest(p *domain.Player) *domain.Mob {
 		delete(m.dirty, nearest.ID)
 		m.deleted[nearest.ID] = struct{}{}
 	}
-	return nearest
+	return true
 }
 
 func (m *MobManager) Flush(ctx context.Context) error {

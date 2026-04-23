@@ -74,7 +74,7 @@ func (h *Handler) HandlePlayerAttack(ctx context.Context, cc *clientConn) error 
 		return fmt.Errorf("player not found")
 	}
 
-	if mob := h.Mobs.DamageNearest(p); mob == nil {
+	if !h.Mobs.DamageNearest(p) {
 		return cc.sendJson(serverMsg{
 			Type: "error",
 			Msg:  "no mob in range to attack",
