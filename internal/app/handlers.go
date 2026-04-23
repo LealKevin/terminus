@@ -15,25 +15,6 @@ import (
 	"github.com/google/uuid"
 )
 
-type clientConn struct {
-	conn net.Conn
-	w    *bufio.Writer
-	enc  *json.Encoder
-
-	mu sync.Mutex
-
-	stateMu sync.Mutex
-	player  *domain.Player
-	dirty   bool
-}
-
-type ClientMsg struct {
-	PlayerID  string `json:"playerID"`
-	Type      string `json:"type"`
-	Message   string `json:"message"`
-	Direction string `json:"direction"`
-}
-
 type StoreProvider interface {
 	Worlds() domain.WorldStore
 	Players() domain.PlayerStore
@@ -45,8 +26,7 @@ type Handler struct {
 	Players domain.PlayerStore
 	Mobs    domain.MobStore
 
-	connections map[*clientConn]struct{}
-	connMutex   sync.RWMutex
+	conns *connRegistry
 
 	cachedWorld *domain.World
 	worldMutex  sync.RWMutex
@@ -59,45 +39,14 @@ type Handler struct {
 
 func NewHandler(stores StoreProvider) *Handler {
 	return &Handler{
-		Worlds:      stores.Worlds(),
-		Players:     stores.Players(),
-		Mobs:        stores.Mobs(),
-		connections: make(map[*clientConn]struct{}),
-		mobs:        make(map[string]*domain.Mob),
-		mobDirty:    make(map[string]struct{}),
-		mobDeleted:  make(map[string]struct{}),
+		Worlds:     stores.Worlds(),
+		Players:    stores.Players(),
+		Mobs:       stores.Mobs(),
+		conns:      newConnRegistry(),
+		mobs:       make(map[string]*domain.Mob),
+		mobDirty:   make(map[string]struct{}),
+		mobDeleted: make(map[string]struct{}),
 	}
-}
-
-func (h *Handler) wrapConnection(c net.Conn) *clientConn {
-	w := bufio.NewWriter(c)
-	enc := json.NewEncoder(w)
-	enc.SetEscapeHTML(false)
-	return &clientConn{conn: c, w: w, enc: enc}
-}
-
-func (h *Handler) addConnection(conn *clientConn) {
-	h.connMutex.Lock()
-	defer h.connMutex.Unlock()
-
-	h.connections[conn] = struct{}{}
-}
-
-func (h *Handler) snapshotConnections() []*clientConn {
-	h.connMutex.RLock()
-	defer h.connMutex.RUnlock()
-	conns := make([]*clientConn, 0, len(h.connections))
-	for c := range h.connections {
-		conns = append(conns, c)
-	}
-	return conns
-}
-
-func (h *Handler) removeConn(conn *clientConn) {
-	h.connMutex.Lock()
-	defer h.connMutex.Unlock()
-
-	delete(h.connections, conn)
 }
 
 func (h *Handler) getCachedWorld(ctx context.Context, worldID string) (*domain.World, error) {
@@ -124,18 +73,8 @@ func (h *Handler) getCachedWorld(ctx context.Context, worldID string) (*domain.W
 	return world, nil
 }
 
-func (cc *clientConn) sendJson(v any) error {
-	cc.mu.Lock()
-	defer cc.mu.Unlock()
-
-	if err := cc.enc.Encode(v); err != nil {
-		return err
-	}
-	return cc.w.Flush()
-}
-
 func (h *Handler) HandleConnection(ctx context.Context, conn net.Conn) {
-	cc := h.wrapConnection(conn)
+	cc := wrapConnection(conn)
 
 	defer conn.Close()
 	fmt.Printf("New connection from: %v \n", conn.RemoteAddr().String())
@@ -182,8 +121,8 @@ func (h *Handler) HandleConnection(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	h.addConnection(cc)
-	defer h.removeConn(cc)
+	h.conns.add(cc)
+	defer h.conns.remove(cc)
 	playersOnline.Inc()
 	defer playersOnline.Dec()
 
@@ -268,13 +207,6 @@ func (h *Handler) HandleMessage(ctx context.Context, msg ClientMsg, cc *clientCo
 			totalMessagesErrors.WithLabelValues(msg.Type).Inc()
 		}
 	}
-}
-
-type serverMsg struct {
-	Type   string         `json:"type"`
-	Msg    string         `json:"msg"`
-	World  *domain.World  `json:"world,omitempty"`
-	Player *domain.Player `json:"player,omitempty"`
 }
 
 func (h *Handler) sendError(conn net.Conn, err error) error {
@@ -579,7 +511,7 @@ func (h *Handler) BroadcastMobsUpdate(ctx context.Context, worldID string) error
 		Mobs: mobs,
 	}
 
-	conns := h.snapshotConnections()
+	conns := h.conns.snapshot()
 	var failed []*clientConn
 	for _, conn := range conns {
 		if err := conn.sendJson(response); err != nil {
@@ -587,7 +519,7 @@ func (h *Handler) BroadcastMobsUpdate(ctx context.Context, worldID string) error
 		}
 	}
 	for _, conn := range failed {
-		h.removeConn(conn)
+		h.conns.remove(conn)
 	}
 	return nil
 }
@@ -599,7 +531,7 @@ func (h *Handler) SaveDirtyPlayers(ctx context.Context) error {
 	for {
 		select {
 		case <-t.C:
-			conns := h.snapshotConnections()
+			conns := h.conns.snapshot()
 			for _, conn := range conns {
 				conn.stateMu.Lock()
 				if !conn.dirty || conn.player == nil || conn.player.ID == "" {
