@@ -86,12 +86,15 @@ var (
 )
 
 type clientConn struct {
-	conn   net.Conn
-	w      *bufio.Writer
-	enc    *json.Encoder
-	mu     sync.Mutex
-	player *domain.Player
-	dirty  bool
+	conn net.Conn
+	w    *bufio.Writer
+	enc  *json.Encoder
+
+	mu sync.Mutex
+
+	stateMu sync.Mutex
+	player  *domain.Player
+	dirty   bool
 }
 
 type ClientMsg struct {
@@ -108,23 +111,31 @@ type StoreProvider interface {
 }
 
 type Handler struct {
-	Worlds domain.WorldStore
-	Player domain.PlayerStore
-	Mobs   domain.MobStore
+	Worlds  domain.WorldStore
+	Players domain.PlayerStore
+	Mobs    domain.MobStore
 
-	connections map[*clientConn]bool
+	connections map[*clientConn]struct{}
 	connMutex   sync.RWMutex
 
 	cachedWorld *domain.World
 	worldMutex  sync.RWMutex
+
+	mobsMu      sync.RWMutex
+	mobs        map[string]*domain.Mob
+	mobDirty    map[string]bool
+	mobDeleted  map[string]bool
 }
 
 func NewHandler(stores StoreProvider) *Handler {
 	return &Handler{
 		Worlds:      stores.Worlds(),
-		Player:      stores.Players(),
+		Players:     stores.Players(),
 		Mobs:        stores.Mobs(),
-		connections: make(map[*clientConn]bool),
+		connections: make(map[*clientConn]struct{}),
+		mobs:        make(map[string]*domain.Mob),
+		mobDirty:    make(map[string]bool),
+		mobDeleted:  make(map[string]bool),
 	}
 }
 
@@ -139,7 +150,17 @@ func (h *Handler) addConnection(conn *clientConn) {
 	h.connMutex.Lock()
 	defer h.connMutex.Unlock()
 
-	h.connections[conn] = true
+	h.connections[conn] = struct{}{}
+}
+
+func (h *Handler) snapshotConnections() []*clientConn {
+	h.connMutex.RLock()
+	defer h.connMutex.RUnlock()
+	conns := make([]*clientConn, 0, len(h.connections))
+	for c := range h.connections {
+		conns = append(conns, c)
+	}
+	return conns
 }
 
 func (h *Handler) removeConn(conn *clientConn) {
@@ -187,17 +208,13 @@ func (h *Handler) HandleConnection(ctx context.Context, conn net.Conn) {
 	cc := h.wrapConnection(conn)
 
 	defer conn.Close()
-	defer playersOnline.Dec()
 	fmt.Printf("New connection from: %v \n", conn.RemoteAddr().String())
-
-	h.addConnection(cc)
-	defer h.removeConn(cc)
 
 	worldID := os.Getenv("WORLD_ID")
 	if worldID == "" {
-		worldID = "123e4567-e89b-12d3-a456-426614174000" // fallback
+		worldID = "123e4567-e89b-12d3-a456-426614174000"
 	}
-	
+
 	world, err := h.getCachedWorld(ctx, worldID)
 	if err != nil {
 		h.sendError(conn, fmt.Errorf("unable to load world: %v", err))
@@ -220,61 +237,58 @@ func (h *Handler) HandleConnection(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	playerID := uuid.New().String()
-	player, err := h.Player.GetPlayer(ctx, playerID)
-	if err != nil {
-		h.sendError(conn, fmt.Errorf("unable to load player: %v", err))
-	}
-	if player == nil {
-		player = domain.NewPlayer(playerID, x, y)
-	}
-
-	saved, err := h.Player.SavePlayer(ctx, player)
+	player := domain.NewPlayer(uuid.New().String(), x, y)
+	saved, err := h.Players.SavePlayer(ctx, player)
 	if err != nil {
 		h.sendError(conn, fmt.Errorf("unable to persist player: %v", err))
 		return
 	}
-	cc.player = saved
 
-	err = cc.sendJson(serverMsg{
+	cc.stateMu.Lock()
+	cc.player = saved
+	cc.stateMu.Unlock()
+
+	if err := cc.sendJson(serverMsg{
 		Type:   "playerUpdate",
 		Msg:    "Player created successfully",
 		Player: saved,
-	})
-	if err != nil {
+	}); err != nil {
 		log.Printf("error sending initial player data: %v", err)
+		return
 	}
 
-	reader := bufio.NewReader(cc.conn)
-
+	h.addConnection(cc)
+	defer h.removeConn(cc)
 	playersOnline.Inc()
+	defer playersOnline.Dec()
 
-	for {
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
 		select {
 		case <-ctx.Done():
-			h.sendError(conn, fmt.Errorf("server is shutting down"))
-			return
-
-		default:
-			cc.conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-			line, err := reader.ReadBytes('\n')
-			if err != nil {
-				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-					continue
-				}
-				log.Printf("error reading from connection: %v", err)
-				return
-			}
-
-			var msg ClientMsg
-			err = json.Unmarshal(line, &msg)
-			if err != nil {
-				log.Printf("error unmarshaling json: %v", err)
-				return
-			}
-
-			h.HandleMessage(ctx, msg, cc)
+			conn.Close()
+		case <-done:
 		}
+	}()
+
+	reader := bufio.NewReader(cc.conn)
+	for {
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			if ctx.Err() == nil {
+				log.Printf("error reading from connection: %v", err)
+			}
+			return
+		}
+
+		var msg ClientMsg
+		if err := json.Unmarshal(line, &msg); err != nil {
+			log.Printf("error unmarshaling json: %v", err)
+			return
+		}
+
+		h.HandleMessage(ctx, msg, cc)
 	}
 }
 
@@ -285,12 +299,16 @@ func (h *Handler) HandleMessage(ctx context.Context, msg ClientMsg, cc *clientCo
 		messageProcessingDuration.WithLabelValues(msg.Type).Observe(time.Since(start).Seconds())
 	}()
 
+	cc.stateMu.Lock()
+	player := cc.player
+	cc.stateMu.Unlock()
+
 	if msg.Type == "getPlayer" {
-		if cc.player != nil && cc.player.ID != "" {
+		if player != nil && player.ID != "" {
 			cc.sendJson(serverMsg{
 				Type:   "playerUpdate",
 				Msg:    "Player retrieved successfully",
-				Player: cc.player,
+				Player: player,
 			})
 		} else {
 			cc.sendJson(serverMsg{Type: "error", Msg: "connection not properly initialized - player created during connection setup"})
@@ -298,16 +316,14 @@ func (h *Handler) HandleMessage(ctx context.Context, msg ClientMsg, cc *clientCo
 		return
 	}
 
-	if cc.player == nil {
+	if player == nil {
 		cc.sendJson(serverMsg{Type: "error", Msg: "player not initialized"})
 		return
 	}
 
-	player := cc.player
-
 	switch msg.Type {
 	case "move":
-		err := h.HandlePlayerMove(ctx, cc, player, msg.Direction)
+		err := h.HandlePlayerMove(ctx, cc, msg.Direction)
 		if err != nil {
 			log.Printf("error handling player move: %v", err)
 			totalMessagesErrors.WithLabelValues(msg.Type).Inc()
@@ -321,7 +337,7 @@ func (h *Handler) HandleMessage(ctx context.Context, msg ClientMsg, cc *clientCo
 		}
 
 	case "attack":
-		err := h.HandlerPlayerAttack(ctx, player, cc)
+		err := h.HandlePlayerAttack(ctx, cc)
 		if err != nil {
 			log.Printf("error handling player attack: %v", err)
 			totalMessagesErrors.WithLabelValues(msg.Type).Inc()
@@ -366,7 +382,7 @@ func (h *Handler) HandleSendWorld(ctx context.Context, cc *clientConn, worldID s
 	return cc.sendJson(response)
 }
 
-func (h *Handler) HandlePlayerMove(ctx context.Context, cc *clientConn, player *domain.Player, dir string) error {
+func (h *Handler) HandlePlayerMove(ctx context.Context, cc *clientConn, dir string) error {
 	start := time.Now()
 	playerMoveInFlight.Inc()
 	playerMoves.Inc()
@@ -375,6 +391,10 @@ func (h *Handler) HandlePlayerMove(ctx context.Context, cc *clientConn, player *
 		playerMoveDuration.Observe((time.Since(start).Seconds()))
 		playerMoveInFlight.Dec()
 	}()
+
+	cc.stateMu.Lock()
+	player := cc.player
+	cc.stateMu.Unlock()
 
 	if player == nil {
 		return fmt.Errorf("player is nil")
@@ -393,23 +413,26 @@ func (h *Handler) HandlePlayerMove(ctx context.Context, cc *clientConn, player *
 		})
 	}
 
-	err = player.Move(dir, world)
-	if err != nil {
+	cc.stateMu.Lock()
+	if err := player.Move(dir, world); err != nil {
+		cc.stateMu.Unlock()
 		return cc.sendJson(serverMsg{
 			Type: "error",
 			Msg:  err.Error(),
 		})
 	}
-
 	cc.dirty = true
+	snapshot := *player
+	cc.stateMu.Unlock()
+
 	return cc.sendJson(serverMsg{
 		Type:   "playerUpdate",
 		Msg:    "Player moved successfully",
-		Player: player,
+		Player: &snapshot,
 	})
 }
 
-func (h *Handler) HandlerPlayerAttack(ctx context.Context, p *domain.Player, cc *clientConn) error {
+func (h *Handler) HandlePlayerAttack(ctx context.Context, cc *clientConn) error {
 	start := time.Now()
 	playerAttackInFlight.Inc()
 	playerAttacks.Inc()
@@ -418,11 +441,18 @@ func (h *Handler) HandlerPlayerAttack(ctx context.Context, p *domain.Player, cc 
 		playerAttackDuration.Observe((time.Since(start).Seconds()))
 		playerAttackInFlight.Dec()
 	}()
+
+	cc.stateMu.Lock()
+	p := cc.player
+	cc.stateMu.Unlock()
 	if p == nil {
 		return fmt.Errorf("player not found")
 	}
-	mob, err := h.nearestMob(ctx, p, p.WorldID, p.Range)
-	if err != nil {
+
+	h.mobsMu.Lock()
+	mob := h.nearestMobLocked(p, p.WorldID, p.Range)
+	if mob == nil {
+		h.mobsMu.Unlock()
 		return cc.sendJson(serverMsg{
 			Type: "error",
 			Msg:  "no mob in range to attack",
@@ -431,46 +461,34 @@ func (h *Handler) HandlerPlayerAttack(ctx context.Context, p *domain.Player, cc 
 
 	p.AttackMob(mob)
 	if mob.IsAlive() {
-		if _, err := h.Mobs.SaveMob(ctx, mob); err != nil {
-			return cc.sendJson(serverMsg{
-				Type: "error",
-				Msg:  err.Error(),
-			})
-		}
+		h.mobDirty[mob.ID] = true
 	} else {
-		if err := h.Mobs.DeleteMob(ctx, mob.ID); err != nil {
-			return cc.sendJson(serverMsg{
-				Type: "error",
-				Msg:  err.Error(),
-			})
-		}
+		delete(h.mobs, mob.ID)
+		delete(h.mobDirty, mob.ID)
+		h.mobDeleted[mob.ID] = true
 	}
+	h.mobsMu.Unlock()
 
+	cc.stateMu.Lock()
 	cc.dirty = true
+	cc.stateMu.Unlock()
 	return nil
 }
 
-func (h *Handler) nearestMob(ctx context.Context, p *domain.Player, worldID string, attackRange int) (*domain.Mob, error) {
-	mobs, err := h.Mobs.GetMobsByWorld(ctx, worldID)
-	if err != nil {
-		return nil, err
-	}
-
+func (h *Handler) nearestMobLocked(p *domain.Player, worldID string, attackRange int) *domain.Mob {
 	var nearest *domain.Mob
 	minDist := attackRange + 1
-
-	for _, mob := range mobs {
-		// Manhattan distance
+	for _, mob := range h.mobs {
+		if mob.WorldID != worldID {
+			continue
+		}
 		dist := abs(p.X-mob.X) + abs(p.Y-mob.Y)
 		if dist < minDist {
 			minDist = dist
 			nearest = mob
 		}
 	}
-	if nearest == nil {
-		return nil, fmt.Errorf("no mob found")
-	}
-	return nearest, nil
+	return nearest
 }
 
 func abs(x int) int {
@@ -478,6 +496,43 @@ func abs(x int) int {
 		return -x
 	}
 	return x
+}
+
+func (h *Handler) LoadMobs(ctx context.Context, worldID string) error {
+	mobs, err := h.Mobs.GetMobsByWorld(ctx, worldID)
+	if err != nil {
+		return err
+	}
+	h.mobsMu.Lock()
+	defer h.mobsMu.Unlock()
+	for _, m := range mobs {
+		h.mobs[m.ID] = m
+	}
+	return nil
+}
+
+func (h *Handler) MobCountInWorld(worldID string) int {
+	h.mobsMu.RLock()
+	defer h.mobsMu.RUnlock()
+	n := 0
+	for _, m := range h.mobs {
+		if m.WorldID == worldID {
+			n++
+		}
+	}
+	return n
+}
+
+func (h *Handler) MobIDsInWorld(worldID string) []string {
+	h.mobsMu.RLock()
+	defer h.mobsMu.RUnlock()
+	ids := make([]string, 0, len(h.mobs))
+	for id, m := range h.mobs {
+		if m.WorldID == worldID {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 func (h *Handler) HandleMobSpawn(ctx context.Context, worldID string, mobType string, name string) (*domain.Mob, error) {
@@ -489,23 +544,32 @@ func (h *Handler) HandleMobSpawn(ctx context.Context, worldID string, mobType st
 		return nil, fmt.Errorf("world not found")
 	}
 
+	h.mobsMu.Lock()
+	occupied := h.occupiedPositionsLocked(worldID)
 	mobID := uuid.New().String()
-	occupiedPositions, err := h.getOccupiedPositions(ctx, worldID)
+	mob, err := world.SpawnMob(mobType, name, mobID, occupied)
 	if err != nil {
+		h.mobsMu.Unlock()
 		return nil, err
 	}
-
-	mob, err := world.SpawnMob(mobType, name, mobID, occupiedPositions)
-	if err != nil {
-		return nil, err
-	}
+	h.mobs[mob.ID] = mob
+	h.mobsMu.Unlock()
 
 	created, err := h.Mobs.CreateMob(ctx, mob)
 	if err != nil {
+		h.mobsMu.Lock()
+		delete(h.mobs, mob.ID)
+		h.mobsMu.Unlock()
 		return nil, err
 	}
-	log.Printf("Spawned mob %s of type %s at (%d, %d) in world %s", created.ID, created.Type, created.X, created.Y, world.ID)
 
+	h.mobsMu.Lock()
+	if existing, ok := h.mobs[mob.ID]; ok {
+		*existing = *created
+	}
+	h.mobsMu.Unlock()
+
+	log.Printf("Spawned mob %s of type %s at (%d, %d) in world %s", created.ID, created.Type, created.X, created.Y, world.ID)
 	return created, nil
 }
 
@@ -518,13 +582,14 @@ func (h *Handler) HandleMobMove(ctx context.Context, mobID string) error {
 		mobMoveDuration.Observe((time.Since(start).Seconds()))
 		mobMoveInFlight.Dec()
 	}()
-	mob, err := h.Mobs.GetMob(ctx, mobID)
-	if err != nil {
-		return err
-	}
-	if mob == nil {
+
+	h.mobsMu.RLock()
+	mob, ok := h.mobs[mobID]
+	h.mobsMu.RUnlock()
+	if !ok || mob == nil {
 		return fmt.Errorf("mob not found")
 	}
+
 	world, err := h.getCachedWorld(ctx, mob.WorldID)
 	if err != nil {
 		return err
@@ -536,46 +601,52 @@ func (h *Handler) HandleMobMove(ctx context.Context, mobID string) error {
 	directions := []string{"N", "S", "E", "W", "NE", "NW", "SE", "SW"}
 	direction := directions[rand.Intn(len(directions))]
 
-	err = mob.Move(direction, world)
-	if err != nil {
+	h.mobsMu.Lock()
+	if _, ok := h.mobs[mobID]; !ok {
+		h.mobsMu.Unlock()
+		return nil
+	}
+	if err := mob.Move(direction, world); err != nil {
+		h.mobsMu.Unlock()
 		return err
 	}
-
-	if _, err := h.Mobs.SaveMob(ctx, mob); err != nil {
-		return err
-	}
+	h.mobDirty[mobID] = true
+	h.mobsMu.Unlock()
 	return nil
 }
 
 func (h *Handler) HandleMobDespawn(ctx context.Context, mobID string) error {
-	mob, err := h.Mobs.GetMob(ctx, mobID)
-	if err != nil {
-		return err
-	}
-	if mob == nil {
+	h.mobsMu.Lock()
+	mob, ok := h.mobs[mobID]
+	if !ok {
+		h.mobsMu.Unlock()
 		return fmt.Errorf("mob not found")
 	}
-	if err := h.Mobs.DeleteMob(ctx, mobID); err != nil {
-		return err
-	}
-	log.Printf("Mob %s despawned from world %s", mob.ID, mob.WorldID)
+	delete(h.mobs, mobID)
+	delete(h.mobDirty, mobID)
+	h.mobDeleted[mobID] = true
+	worldID := mob.WorldID
+	h.mobsMu.Unlock()
+
+	log.Printf("Mob %s despawned from world %s", mobID, worldID)
 	return nil
 }
 
-func (h *Handler) getOccupiedPositions(ctx context.Context, worldID string) (map[string]bool, error) {
+func (h *Handler) occupiedPositionsLocked(worldID string) map[string]bool {
 	occupied := make(map[string]bool)
-
-	mobs, err := h.Mobs.GetMobsByWorld(ctx, worldID)
-	if err != nil {
-		return nil, err
+	for _, mob := range h.mobs {
+		if mob.WorldID != worldID {
+			continue
+		}
+		occupied[fmt.Sprintf("%d,%d", mob.X, mob.Y)] = true
 	}
+	return occupied
+}
 
-	for _, mob := range mobs {
-		key := fmt.Sprintf("%d,%d", mob.X, mob.Y)
-		occupied[key] = true
-	}
-
-	return occupied, nil
+func (h *Handler) getOccupiedPositions(ctx context.Context, worldID string) (map[string]bool, error) {
+	h.mobsMu.RLock()
+	defer h.mobsMu.RUnlock()
+	return h.occupiedPositionsLocked(worldID), nil
 }
 
 type MobUpdate struct {
@@ -584,28 +655,30 @@ type MobUpdate struct {
 }
 
 func (h *Handler) BroadcastMobsUpdate(ctx context.Context, worldID string) error {
-	h.connMutex.RLock()
-	defer h.connMutex.RUnlock()
-
-	mobs, err := h.Mobs.GetMobsByWorld(ctx, worldID)
-	if err != nil {
-		return err
+	h.mobsMu.RLock()
+	mobs := make([]*domain.Mob, 0, len(h.mobs))
+	for _, m := range h.mobs {
+		if m.WorldID != worldID {
+			continue
+		}
+		snap := *m
+		mobs = append(mobs, &snap)
 	}
+	h.mobsMu.RUnlock()
 
 	response := MobUpdate{
 		Type: "mobsUpdate",
 		Mobs: mobs,
 	}
 
-	var failedConns []*clientConn
-
-	for conn := range h.connections {
+	conns := h.snapshotConnections()
+	var failed []*clientConn
+	for _, conn := range conns {
 		if err := conn.sendJson(response); err != nil {
-			failedConns = append(failedConns, conn)
+			failed = append(failed, conn)
 		}
 	}
-
-	for _, conn := range failedConns {
+	for _, conn := range failed {
 		h.removeConn(conn)
 	}
 	return nil
@@ -618,20 +691,88 @@ func (h *Handler) SaveDirtyPlayers(ctx context.Context) error {
 	for {
 		select {
 		case <-t.C:
-			h.connMutex.RLock()
-			for conn := range h.connections {
-				if conn.dirty && conn.player != nil && conn.player.ID != "" {
-					conn.dirty = false
-					_, err := h.Player.SavePlayer(ctx, conn.player)
-					if err != nil {
-						log.Printf("failed to save player %s: %v", conn.player.ID, err)
-						continue
-					}
+			conns := h.snapshotConnections()
+			for _, conn := range conns {
+				conn.stateMu.Lock()
+				if !conn.dirty || conn.player == nil || conn.player.ID == "" {
+					conn.stateMu.Unlock()
+					continue
+				}
+				snapshot := *conn.player
+				conn.dirty = false
+				conn.stateMu.Unlock()
+
+				if _, err := h.Players.SavePlayer(ctx, &snapshot); err != nil {
+					log.Printf("failed to save player %s: %v", snapshot.ID, err)
+					conn.stateMu.Lock()
+					conn.dirty = true
+					conn.stateMu.Unlock()
 				}
 			}
-			h.connMutex.RUnlock()
 		case <-ctx.Done():
 			return nil
+		}
+	}
+}
+
+func (h *Handler) FlushMobs(ctx context.Context) error {
+	t := time.NewTicker(2 * time.Second)
+	defer t.Stop()
+
+	for {
+		select {
+		case <-t.C:
+			h.flushMobsOnce(ctx)
+		case <-ctx.Done():
+			h.flushMobsOnce(context.Background())
+			return nil
+		}
+	}
+}
+
+func (h *Handler) flushMobsOnce(ctx context.Context) {
+	h.mobsMu.Lock()
+	dirtyIDs := make([]string, 0, len(h.mobDirty))
+	for id := range h.mobDirty {
+		dirtyIDs = append(dirtyIDs, id)
+	}
+	deletedIDs := make([]string, 0, len(h.mobDeleted))
+	for id := range h.mobDeleted {
+		deletedIDs = append(deletedIDs, id)
+	}
+
+	snaps := make([]domain.Mob, 0, len(dirtyIDs))
+	for _, id := range dirtyIDs {
+		m, ok := h.mobs[id]
+		if !ok {
+			delete(h.mobDirty, id)
+			continue
+		}
+		snaps = append(snaps, *m)
+		delete(h.mobDirty, id)
+	}
+	for _, id := range deletedIDs {
+		delete(h.mobDeleted, id)
+	}
+	h.mobsMu.Unlock()
+
+	for i := range snaps {
+		s := snaps[i]
+		if _, err := h.Mobs.SaveMob(ctx, &s); err != nil {
+			log.Printf("failed to save mob %s: %v", s.ID, err)
+			h.mobsMu.Lock()
+			if _, ok := h.mobs[s.ID]; ok {
+				h.mobDirty[s.ID] = true
+			}
+			h.mobsMu.Unlock()
+		}
+	}
+	for _, id := range deletedIDs {
+		if err := h.Mobs.DeleteMob(ctx, id); err != nil {
+			log.Printf("failed to delete mob %s: %v", id, err)
+			h.mobsMu.Lock()
+			h.mobDeleted[id] = true
+			h.mobsMu.Unlock()
 		}
 	}
 }

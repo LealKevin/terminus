@@ -48,13 +48,21 @@ func main() {
 	handler := app.NewHandler(stores)
 	server := server.NewServer(":4200", handler)
 
-	// Initialize world if it doesn't exist
 	if err := initializeWorld(ctx, handler); err != nil {
 		log.Fatalf("Failed to initialize world: %v", err)
 	}
 
-	go StartGameLoop(ctx, handler)
+	worldID := os.Getenv("WORLD_ID")
+	if worldID == "" {
+		worldID = "123e4567-e89b-12d3-a456-426614174000"
+	}
+	if err := handler.LoadMobs(ctx, worldID); err != nil {
+		log.Fatalf("Failed to load mobs: %v", err)
+	}
+
+	go StartGameLoop(ctx, handler, worldID)
 	go handler.SaveDirtyPlayers(ctx)
+	go handler.FlushMobs(ctx)
 
 	go func() {
 		log.Println("app listening on :4200")
@@ -70,22 +78,13 @@ func main() {
 	_ = metricsSrv.Shutdown(shutdownCtx)
 }
 
-func StartGameLoop(ctx context.Context, h *app.Handler) {
-	worldID := os.Getenv("WORLD_ID")
-	if worldID == "" {
-		worldID = "123e4567-e89b-12d3-a456-426614174000" // fallback
-	}
-	
+func StartGameLoop(ctx context.Context, h *app.Handler, worldID string) {
 	ticker := time.NewTicker(time.Second * 1 / 2)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
-			mobsCount, err := h.Mobs.CountMobsInWorld(ctx, worldID)
-			if err != nil {
-				log.Printf("Failed to count mobs: %v", err)
-				continue
-			}
+			mobsCount := h.MobCountInWorld(worldID)
 			if mobsCount < 5 {
 				for i := 0; i < 5-mobsCount; i++ {
 					if _, err := h.HandleMobSpawn(ctx, worldID, "Goblin", "Goblin"); err != nil {
@@ -94,15 +93,10 @@ func StartGameLoop(ctx context.Context, h *app.Handler) {
 				}
 			}
 
-			mobs, err := h.Mobs.GetMobsByWorld(ctx, worldID)
-			if err != nil {
-				log.Printf("Failed to list mobs: %v", err)
-				continue
-			}
-			for _, mob := range mobs {
+			for _, id := range h.MobIDsInWorld(worldID) {
 				if rand.Float32() < 0.5 {
-					if err := h.HandleMobMove(ctx, mob.ID); err != nil {
-						log.Printf("Failed to move mob %s: %v", mob.ID, err)
+					if err := h.HandleMobMove(ctx, id); err != nil {
+						log.Printf("Failed to move mob %s: %v", id, err)
 					}
 				}
 			}
@@ -119,22 +113,20 @@ func StartGameLoop(ctx context.Context, h *app.Handler) {
 func initializeWorld(ctx context.Context, h *app.Handler) error {
 	worldID := os.Getenv("WORLD_ID")
 	if worldID == "" {
-		worldID = "123e4567-e89b-12d3-a456-426614174000" // fallback
+		worldID = "123e4567-e89b-12d3-a456-426614174000"
 	}
-	
-	// Check if world already exists
+
 	_, err := h.Worlds.GetWorld(ctx, worldID)
 	if err == nil {
 		log.Println("World already exists")
 		return nil
 	}
-	
-	// Create the world
+
 	log.Println("Creating initial world...")
 	if _, err := h.Worlds.CreateWorld(ctx, worldID, 53, 25, domain.Raw); err != nil {
 		return err
 	}
-	
+
 	log.Printf("World %s created successfully", worldID)
 	return nil
 }
