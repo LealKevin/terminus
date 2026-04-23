@@ -26,10 +26,8 @@ type Handler struct {
 	Players domain.PlayerStore
 	Mobs    domain.MobStore
 
-	conns *connRegistry
-
-	cachedWorld *domain.World
-	worldMutex  sync.RWMutex
+	conns      *connRegistry
+	worldCache *worldCache
 
 	mobsMu     sync.RWMutex
 	mobs       map[string]*domain.Mob
@@ -43,34 +41,11 @@ func NewHandler(stores StoreProvider) *Handler {
 		Players:    stores.Players(),
 		Mobs:       stores.Mobs(),
 		conns:      newConnRegistry(),
+		worldCache: newWorldCache(stores.Worlds()),
 		mobs:       make(map[string]*domain.Mob),
 		mobDirty:   make(map[string]struct{}),
 		mobDeleted: make(map[string]struct{}),
 	}
-}
-
-func (h *Handler) getCachedWorld(ctx context.Context, worldID string) (*domain.World, error) {
-	h.worldMutex.RLock()
-	if h.cachedWorld != nil && h.cachedWorld.ID == worldID {
-		world := h.cachedWorld
-		h.worldMutex.RUnlock()
-		return world, nil
-	}
-	h.worldMutex.RUnlock()
-
-	h.worldMutex.Lock()
-	defer h.worldMutex.Unlock()
-
-	if h.cachedWorld != nil && h.cachedWorld.ID == worldID {
-		return h.cachedWorld, nil
-	}
-
-	world, err := h.Worlds.GetWorld(ctx, worldID)
-	if err != nil {
-		return nil, err
-	}
-	h.cachedWorld = world
-	return world, nil
 }
 
 func (h *Handler) HandleConnection(ctx context.Context, conn net.Conn) {
@@ -79,7 +54,7 @@ func (h *Handler) HandleConnection(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 	fmt.Printf("New connection from: %v \n", conn.RemoteAddr().String())
 
-	world, err := h.getCachedWorld(ctx, domain.ResolveWorldID())
+	world, err := h.worldCache.Get(ctx, domain.ResolveWorldID())
 	if err != nil {
 		h.sendError(conn, fmt.Errorf("unable to load world: %v", err))
 		return
@@ -223,7 +198,7 @@ func (h *Handler) sendError(conn net.Conn, err error) error {
 
 func (h *Handler) HandleSendWorld(ctx context.Context, cc *clientConn, worldID string) error {
 	fmt.Printf("Sending world %s\n", worldID)
-	world, err := h.getCachedWorld(ctx, worldID)
+	world, err := h.worldCache.Get(ctx, worldID)
 	if err != nil {
 		return err
 	}
@@ -256,7 +231,7 @@ func (h *Handler) HandlePlayerMove(ctx context.Context, cc *clientConn, dir stri
 	if player == nil {
 		return fmt.Errorf("player is nil")
 	}
-	world, err := h.getCachedWorld(ctx, player.WorldID)
+	world, err := h.worldCache.Get(ctx, player.WorldID)
 	if err != nil {
 		return cc.sendJson(serverMsg{
 			Type: "error",
@@ -387,7 +362,7 @@ func (h *Handler) MobIDsInWorld(worldID string) []string {
 }
 
 func (h *Handler) HandleMobSpawn(ctx context.Context, worldID string, mobType string, name string) (*domain.Mob, error) {
-	world, err := h.getCachedWorld(ctx, worldID)
+	world, err := h.worldCache.Get(ctx, worldID)
 	if err != nil {
 		return nil, err
 	}
@@ -434,7 +409,7 @@ func (h *Handler) HandleMobMove(ctx context.Context, mobID string) error {
 		mobMoveInFlight.Dec()
 	}()
 
-	world, err := h.getCachedWorld(ctx, domain.ResolveWorldID())
+	world, err := h.worldCache.Get(ctx, domain.ResolveWorldID())
 	if err != nil {
 		return err
 	}
