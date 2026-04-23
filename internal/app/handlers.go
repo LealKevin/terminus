@@ -47,24 +47,24 @@ func (h *Handler) HandleConnection(ctx context.Context, conn net.Conn) {
 
 	world, err := h.worldCache.Get(ctx, domain.ResolveWorldID())
 	if err != nil {
-		h.sendError(conn, fmt.Errorf("unable to load world: %v", err))
+		h.sendError(cc, fmt.Errorf("unable to load world: %v", err))
 		return
 	}
 	if world == nil {
-		h.sendError(conn, fmt.Errorf("world not found"))
+		h.sendError(cc, fmt.Errorf("world not found"))
 		return
 	}
 
 	y, x, err := domain.FindRandomSpawnPosition(world, h.Mobs.OccupiedPositions(world.ID))
 	if err != nil {
-		h.sendError(conn, fmt.Errorf("unable to find spawn position: %v", err))
+		h.sendError(cc, fmt.Errorf("unable to find spawn position: %v", err))
 		return
 	}
 
 	player := domain.NewPlayer(uuid.New().String(), x, y)
 	saved, err := h.Players.SavePlayer(ctx, player)
 	if err != nil {
-		h.sendError(conn, fmt.Errorf("unable to persist player: %v", err))
+		h.sendError(cc, fmt.Errorf("unable to persist player: %v", err))
 		return
 	}
 
@@ -169,16 +169,11 @@ func (h *Handler) HandleMessage(ctx context.Context, msg ClientMsg, cc *clientCo
 	}
 }
 
-func (h *Handler) sendError(conn net.Conn, err error) error {
-	response := serverMsg{
+func (h *Handler) sendError(cc *clientConn, err error) error {
+	return cc.sendJson(serverMsg{
 		Type: "error",
 		Msg:  err.Error(),
-	}
-	e := json.NewEncoder(conn).Encode(response)
-	if e != nil {
-		return e
-	}
-	return nil
+	})
 }
 
 func (h *Handler) HandleSendWorld(ctx context.Context, cc *clientConn, worldID string) error {
