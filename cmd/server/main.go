@@ -53,13 +53,13 @@ func main() {
 	}
 
 	worldID := domain.ResolveWorldID()
-	if err := handler.LoadMobs(ctx, worldID); err != nil {
+	if err := handler.Mobs.Load(ctx, worldID); err != nil {
 		log.Fatalf("Failed to load mobs: %v", err)
 	}
 
 	go StartGameLoop(ctx, handler, worldID)
 	go handler.SaveDirtyPlayers(ctx)
-	go handler.FlushMobs(ctx)
+	go handler.Mobs.Flush(ctx)
 
 	go func() {
 		log.Println("app listening on :4200")
@@ -81,16 +81,16 @@ func StartGameLoop(ctx context.Context, h *app.Handler, worldID string) {
 	for {
 		select {
 		case <-ticker.C:
-			ids := h.MobIDsInWorld(worldID)
+			ids := h.Mobs.IDsInWorld(worldID)
 			for i := len(ids); i < 5; i++ {
-				if _, err := h.HandleMobSpawn(ctx, worldID, "Goblin", "Goblin"); err != nil {
+				if _, err := h.Mobs.Spawn(ctx, worldID, "Goblin", "Goblin"); err != nil {
 					log.Printf("Failed to spawn mob: %v", err)
 				}
 			}
 
 			for _, id := range ids {
 				if rand.Float32() < 0.5 {
-					if err := h.HandleMobMove(ctx, id); err != nil {
+					if err := h.Mobs.Move(ctx, id); err != nil {
 						log.Printf("Failed to move mob %s: %v", id, err)
 					}
 				}
