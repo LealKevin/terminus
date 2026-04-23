@@ -7,7 +7,6 @@ type MobStore interface {
 	SaveMob(ctx context.Context, mob *Mob) (*Mob, error)
 	CreateMob(ctx context.Context, mob *Mob) (*Mob, error)
 	DeleteMob(ctx context.Context, id string) error
-	CountMobsInWorld(ctx context.Context, worldID string) (int, error)
 	GetMobsByWorld(ctx context.Context, worldID string) ([]*Mob, error)
 }
 

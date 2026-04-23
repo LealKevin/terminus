@@ -122,18 +122,6 @@ func (ms *MobMemoryStore) DeleteMob(ctx context.Context, id string) error {
 	return nil
 }
 
-func (ms *MobMemoryStore) CountMobsInWorld(ctx context.Context, worldID string) (int, error) {
-	ms.mu.RLock()
-	defer ms.mu.RUnlock()
-	count := 0
-	for _, mob := range ms.mobs {
-		if mob.WorldID == worldID {
-			count++
-		}
-	}
-	return count, nil
-}
-
 func (ms *MobMemoryStore) GetMobsByWorld(ctx context.Context, worldID string) ([]*domain.Mob, error) {
 	ms.mu.RLock()
 	defer ms.mu.RUnlock()

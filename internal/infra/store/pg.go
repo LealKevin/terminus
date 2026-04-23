@@ -256,20 +256,6 @@ func (ms *MobPgStore) DeleteMob(ctx context.Context, id string) error {
 	return ms.db.DeleteMob(ctx, pgID)
 }
 
-func (ms *MobPgStore) CountMobsInWorld(ctx context.Context, worldID string) (int, error) {
-	pgWorldID, err := parseUUID(worldID)
-	if err != nil {
-		return 0, err
-	}
-
-	count, err := ms.db.CountMobsInWorld(ctx, pgWorldID)
-	if err != nil {
-		return 0, err
-	}
-
-	return int(count), nil
-}
-
 func (ms *MobPgStore) GetMobsByWorld(ctx context.Context, worldID string) ([]*domain.Mob, error) {
 	pgWorldID, err := parseUUID(worldID)
 	if err != nil {
