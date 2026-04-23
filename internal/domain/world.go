@@ -4,8 +4,18 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"os"
 	"strings"
 )
+
+const DefaultWorldID = "123e4567-e89b-12d3-a456-426614174000"
+
+func ResolveWorldID() string {
+	if id := os.Getenv("WORLD_ID"); id != "" {
+		return id
+	}
+	return DefaultWorldID
+}
 
 var Raw string = `#####################################################
 #                                                   #
