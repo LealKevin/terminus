@@ -1,4 +1,7 @@
 *.pkg
 .DS_Store
 .env
+.env.local
+.env.*.local
 terminus
+k8s/db-secret.yaml
