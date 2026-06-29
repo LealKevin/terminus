@@ -90,14 +90,3 @@ func (p *Player) AttackMob(mob *Mob) {
 func (p *Player) IsAlive() bool {
 	return p.Health > 0
 }
-
-func (p *Player) SpawnPlayer(w *World, occupiedPositions map[string]bool) error {
-	x, y, err := FindRandomSpawnPosition(w, occupiedPositions)
-	if err != nil {
-		return err
-	}
-
-	p.X = x
-	p.Y = y
-	return nil
-}

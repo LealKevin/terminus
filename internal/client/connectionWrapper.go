@@ -77,28 +77,6 @@ func (cw *connectionWrapper) getWorld(id string) tea.Cmd {
 	}
 }
 
-func (cw *connectionWrapper) getPlayer(id string) tea.Cmd {
-	return func() tea.Msg {
-		msg := ClientMsg{Type: "getPlayer", PlayerID: id}
-		data, err := json.Marshal(msg)
-		if err != nil {
-			return errMsg{err}
-		}
-		_, err = cw.conn.Write(append(data, '\n'))
-		if err != nil {
-			return errMsg{err}
-		}
-
-		var player Player
-		err = cw.decoder.Decode(&player)
-		if err != nil {
-			return errMsg{err}
-		}
-
-		return player
-	}
-}
-
 func (cw *connectionWrapper) sendMove(playerID, dir string) tea.Cmd {
 	return func() tea.Msg {
 		msg := ClientMsg{PlayerID: playerID, Type: "move", Direction: dir}

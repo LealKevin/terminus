@@ -166,20 +166,6 @@ func (m *MobManager) Move(ctx context.Context, mobID string) error {
 	return nil
 }
 
-func (m *MobManager) Despawn(mobID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	mob, ok := m.mobs[mobID]
-	if !ok {
-		return fmt.Errorf("mob not found")
-	}
-	delete(m.mobs, mobID)
-	delete(m.dirty, mobID)
-	m.deleted[mobID] = struct{}{}
-	log.Printf("Mob %s despawned from world %s", mobID, mob.WorldID)
-	return nil
-}
-
 func (m *MobManager) DamageNearest(p *domain.Player) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
