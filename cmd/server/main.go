@@ -115,7 +115,7 @@ func initializeWorld(ctx context.Context, h *app.Handler) error {
 	}
 
 	log.Println("Creating initial world...")
-	if _, err := h.Worlds.CreateWorld(ctx, worldID, 53, 25, domain.Raw); err != nil {
+	if _, err := h.Worlds.CreateWorld(ctx, worldID, 53, 28, domain.Raw); err != nil {
 		return err
 	}
 
