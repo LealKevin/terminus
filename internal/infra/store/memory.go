@@ -26,7 +26,7 @@ type MobMemoryStore struct {
 func NewPlayerMemoryStore() *PlayerMemoryStore {
 	return &PlayerMemoryStore{
 		players: map[string]*domain.Player{
-			"1": {ID: "1", WorldID: "world1", X: 2, Y: 2, Health: 100, Attack: 50, Defense: 5, Range: 1},
+			"1": {ID: "1", WorldID: "world1", X: 2, Y: 2, Health: 100, Attack: 50, Defense: 5, Range: 10},
 		},
 	}
 }
@@ -66,7 +66,7 @@ func (ms *WorldMemoryStore) GetWorld(ctx context.Context, id string) (*domain.Wo
 	defer ms.mu.RUnlock()
 	world, ok := ms.worlds[id]
 	if !ok {
-		return nil, fmt.Errorf("world %s not found", id)
+		return nil, nil
 	}
 	return world, nil
 }
@@ -131,6 +131,5 @@ func (ms *MobMemoryStore) GetMobsByWorld(ctx context.Context, worldID string) ([
 			mobs = append(mobs, mob)
 		}
 	}
-	fmt.Printf("Mobs in world %s: %+v\n", worldID, mobs)
 	return mobs, nil
 }
