@@ -27,11 +27,11 @@ func NewServer(port string, handler ConnHandler) *Server {
 func (s *Server) Start(ctx context.Context) {
 	ln, err := net.Listen("tcp", s.Port)
 	if err != nil {
-		log.Fatalf("unable to start server")
+		log.Fatalf("unable to start server: %v", err)
 	}
 	defer ln.Close()
 
-	fmt.Printf("listenner started on port %s \n", s.Port)
+	fmt.Printf("listener started on port %s \n", s.Port)
 
 	var wg sync.WaitGroup
 	go func() {
@@ -59,5 +59,5 @@ func (s *Server) Start(ctx context.Context) {
 
 	fmt.Println("\nShutting down the server...")
 	wg.Wait()
-	fmt.Print("Server gracefully stopped")
+	fmt.Println("Server gracefully stopped")
 }
