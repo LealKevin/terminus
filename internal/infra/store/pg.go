@@ -71,6 +71,9 @@ func (ws *WorldPgStore) GetWorld(ctx context.Context, id string) (*domain.World,
 	}
 
 	rec, err := ws.db.GetWorldByID(ctx, pgID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
