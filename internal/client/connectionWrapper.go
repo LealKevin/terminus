@@ -21,12 +21,12 @@ func ServerConnection() (*connectionWrapper, error) {
 	if host == "" {
 		host = "127.0.0.1"
 	}
-	
+
 	port := os.Getenv("SERVER_PORT")
 	if port == "" {
 		port = "4200"
 	}
-	
+
 	addr := net.JoinHostPort(host, port)
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
