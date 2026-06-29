@@ -34,7 +34,7 @@ func NewPlayerMemoryStore() *PlayerMemoryStore {
 func NewWorldMemoryStore() *WorldMemoryStore {
 	return &WorldMemoryStore{
 		worlds: map[string]*domain.World{
-			"world1": {ID: "world1", Width: 53, Height: 25, Layout: domain.ConvertLayout(domain.Raw)},
+			"world1": {ID: "world1", Width: 53, Height: 28, Layout: domain.ConvertLayout(domain.Raw)},
 		},
 	}
 }

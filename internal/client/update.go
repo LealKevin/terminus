@@ -1,8 +1,6 @@
 package client
 
 import (
-	"fmt"
-
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -10,11 +8,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case errMsg:
 		m.err = msg.error
-		return m, m.conn.listenForServerMessages()
-
-	case Player:
-		m.msgForNow = fmt.Sprintf("Player moved to (%d, %d)", msg.X, msg.Y)
-		m.gameState.player = msg
 		return m, m.conn.listenForServerMessages()
 
 	case ServerMsg:

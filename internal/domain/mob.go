@@ -72,14 +72,17 @@ func (m *Mob) IsAlive() bool {
 }
 
 func (m *Mob) TakeDamage(damage int) {
-	actualDamage := damage - m.Defense
-	if actualDamage < 0 {
-		actualDamage = 0
-	}
-	m.Health -= actualDamage
+	m.Health -= netDamage(damage, m.Defense)
 	if m.Health < 0 {
 		m.Health = 0
 	}
+}
+
+func netDamage(damage, defense int) int {
+	if d := damage - defense; d > 0 {
+		return d
+	}
+	return 0
 }
 
 func (m *Mob) AttackTarget(target *Player) {

@@ -73,11 +73,7 @@ func (p *Player) Move(direction string, world *World) error {
 }
 
 func (p *Player) TakeDamage(damage int) {
-	actualDamage := damage - p.Defense
-	if actualDamage < 0 {
-		actualDamage = 0
-	}
-	p.Health -= actualDamage
+	p.Health -= netDamage(damage, p.Defense)
 	if p.Health < 0 {
 		p.Health = 0
 	}
