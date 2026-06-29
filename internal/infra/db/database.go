@@ -9,8 +9,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var Conn *pgxpool.Pool
-
 type Database struct {
 	Conn *pgxpool.Pool
 }
@@ -31,16 +29,16 @@ func NewDatabase() (*Database, error) {
 	config.MaxConnLifetime = time.Hour
 	config.ConnConfig.ConnectTimeout = time.Second * 30
 
-	Conn, err := pgxpool.NewWithConfig(context.Background(), config)
+	pool, err := pgxpool.NewWithConfig(context.Background(), config)
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect to database: %v", err)
 	}
 
-	if err := Conn.Ping(context.Background()); err != nil {
+	if err := pool.Ping(context.Background()); err != nil {
 		return nil, fmt.Errorf("unable to ping database: %v", err)
 	}
 
-	return &Database{Conn: Conn}, nil
+	return &Database{Conn: pool}, nil
 }
 
 func (db *Database) Close() {
