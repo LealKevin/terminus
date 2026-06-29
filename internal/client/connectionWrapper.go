@@ -3,7 +3,6 @@ package client
 import (
 	"bufio"
 	"encoding/json"
-	"fmt"
 	"net"
 	"os"
 
@@ -28,10 +27,10 @@ func ServerConnection() (*connectionWrapper, error) {
 		port = "4200"
 	}
 	
-	addr := fmt.Sprintf("%s:%s", host, port)
+	addr := net.JoinHostPort(host, port)
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	writer := bufio.NewWriter(conn)
