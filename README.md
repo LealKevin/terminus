@@ -1,106 +1,68 @@
 # Terminus
 
-A high-performance multiplayer game server built with Go, featuring cloud-native deployment, monitoring, and auto-scaling capabilities.
+A multiplayer roguelike that runs in the terminal. The server is written in Go, players connect with a TUI client, walk around a shared map and fight goblins together.
 
-## Overview
+I built it mainly to learn how a stateful game server behaves under load: concurrency in Go, keeping Postgres off the hot path, and running the whole thing on Kubernetes with Prometheus and Grafana watching it.
 
-Terminus is a real-time multiplayer game server capable of handling 5000+ concurrent connections. Players navigate through a world grid, encounter mobs, and interact in real-time. The architecture demonstrates modern cloud deployment practices with comprehensive monitoring and performance optimization.
+## How it works
 
-## Key Features
+- Clients talk to the server over plain TCP, one JSON message per line (`move`, `attack`, `getWorld`).
+- Each connection gets its own goroutine. Player and mob state live in memory and are written to Postgres every 2 seconds, only for what changed.
+- A game loop ticks every 500ms: it keeps 5 mobs on the map, moves them around and broadcasts their positions to everyone connected.
+- The world layout is cached after the first load, so movement checks never hit the database.
+- The server exposes Prometheus metrics on `:2112/metrics` (messages, errors, processing time, players online, moves and attacks).
 
-- **High Performance**: Optimized to handle 5000+ concurrent players with 5ms latency
-- **Cloud Native**: Full Kubernetes deployment with auto-scaling on AWS EKS
-- **Monitoring**: Complete observability stack with Prometheus and Grafana
-- **Real-time Gaming**: WebSocket-based multiplayer with live combat and movement
-- **Performance Optimization**: Strategic caching achieving 4x latency improvement
-- **Load Testing**: Automated bot framework for performance validation
-
-## Architecture
-
-- **Server**: WebSocket-based game server with performance metrics
-- **Client**: Terminal UI with Bubble Tea for interactive gameplay
-- **Storage**: PostgreSQL with connection pooling and cached operations
-- **Orchestration**: Kubernetes with StatefulSets and horizontal auto-scaling
-- **Monitoring**: Prometheus metrics with Grafana dashboards
-- **Cloud**: AWS EKS deployment with Network Load Balancers
-
-## Technology Stack
-
-- **Backend**: Go 1.24+, WebSockets, PostgreSQL
-- **Container**: Docker with multi-platform builds
-- **Orchestration**: Kubernetes, StatefulSets, HPA
-- **Cloud**: AWS EKS, ECR, Network Load Balancer
-- **Monitoring**: Prometheus, Grafana, kube-state-metrics
-- **Performance**: Strategic caching, connection pooling
-
-## Project Structure
+## Layout
 
 ```
-terminus/
-├── cmd/
-│   ├── server/         # Game server with metrics
-│   ├── client/         # Terminal client
-│   └── botloader/      # Load testing framework
-├── internal/
-│   ├── app/           # Application handlers with caching
-│   ├── client/        # Client-side logic
-│   ├── domain/        # Business logic (Player, World, Mob)
-│   └── infra/         # Infrastructure layer
-│       ├── db/        # Database models and queries
-│       ├── server/    # WebSocket server
-│       └── store/     # Data persistence with caching
-├── k8s/               # Kubernetes manifests
-│   ├── aws/          # AWS EKS specific configs
-│   └── minikube/     # Local development
-└── docker-compose.yml
+cmd/
+  server/      game server
+  client/      terminal client (Bubble Tea)
+  botloader/   load testing bots
+internal/
+  domain/      player, mob, world rules
+  app/         connection handling, game loop, mob manager, metrics
+  client/      client state and rendering
+  infra/       TCP server, Postgres (sqlc), in-memory stores
+migrations/    SQL migrations
+k8s/           kustomize manifests
+grafana/       dashboards
 ```
 
-## Quick Start
+## Running it
 
-### Local Development
+You need Go 1.24 and Docker.
 
 ```bash
-docker-compose up
+cp .env.example .env
+make up                      # postgres, migrations, server, prometheus, grafana
+go run ./cmd/client          # in another terminal
 ```
 
-### Kubernetes Deployment
+Controls: `hjkl` or arrow keys to move, `yubn` for diagonals, `a` to attack, `q` to quit.
+
+Grafana is on http://localhost:3000 and Prometheus on http://localhost:9090.
+
+`make help` lists everything else (tests, migrations, docker image, k8s).
+
+## Load testing
+
+The botloader spawns bots that connect and move around randomly, ramping up, holding, then ramping down:
 
 ```bash
-kubectl apply -f k8s/
+make bots BOTS=1000 RAMP=30 SUSTAIN=60
 ```
 
-### Load Testing
+On the earlier AWS deployment, moving the world and mob state into memory brought move latency from around 20ms to 5ms and let the server handle 5000+ concurrent connections, up from about 350.
+
+## Kubernetes
 
 ```bash
-go run cmd/botloader/main.go -bots=1000 -duration=300s
+make k8s-secret          # creates k8s/db-secret.yaml from the example
+make k8s-apply           # kubectl apply -k k8s/
+make k8s-port-forward
 ```
 
-## Configuration
+This deploys Postgres as a StatefulSet, runs migrations as a Job, and starts the game server, Prometheus, Grafana and kube-state-metrics.
 
-Copy `.env.example` to `.env` and configure:
-
-```bash
-DATABASE_URL=postgres://terminus:your_password@db:5432/terminus?sslmode=disable
-WORLD_ID=123e4567-e89b-12d3-a456-426614174000
-SERVER_HOST=your-loadbalancer-endpoint.elb.your-region.amazonaws.com
-SERVER_PORT=4200
-```
-
-## Performance Achievements
-
-- **Latency**: Reduced from 20ms to 5ms through caching optimization
-- **Capacity**: Increased from 350 to 5000+ concurrent connections
-- **Auto-scaling**: Kubernetes HPA based on CPU/memory metrics
-- **Monitoring**: Real-time metrics with custom Grafana dashboards
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
-## License
-
-This project is open source and available under the MIT License.
+The game server runs as a single replica. State is held in memory per process, so scaling out would need sharding by world or a shared store, which is the next thing I'd like to work on.
