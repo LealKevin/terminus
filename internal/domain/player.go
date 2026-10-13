@@ -73,8 +73,7 @@ func (p *Player) Move(direction string, world *World) error {
 }
 
 func (p *Player) TakeDamage(damage int) {
-	damage -= p.Defense
-	p.Health -= damage
+	p.Health -= netDamage(damage, p.Defense)
 	if p.Health < 0 {
 		p.Health = 0
 	}
@@ -86,15 +85,4 @@ func (p *Player) AttackMob(mob *Mob) {
 
 func (p *Player) IsAlive() bool {
 	return p.Health > 0
-}
-
-func (p *Player) SpawnPlayer(w *World, occupiedPositions map[string]bool) error {
-	x, y, err := FindRandomSpawnPosition(w, occupiedPositions)
-	if err != nil {
-		return err
-	}
-
-	p.X = x
-	p.Y = y
-	return nil
 }

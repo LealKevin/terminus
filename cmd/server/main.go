@@ -108,14 +108,17 @@ func StartGameLoop(ctx context.Context, h *app.Handler, worldID string) {
 func initializeWorld(ctx context.Context, h *app.Handler) error {
 	worldID := domain.ResolveWorldID()
 
-	_, err := h.Worlds.GetWorld(ctx, worldID)
-	if err == nil {
+	world, err := h.Worlds.GetWorld(ctx, worldID)
+	if err != nil {
+		return err
+	}
+	if world != nil {
 		log.Println("World already exists")
 		return nil
 	}
 
 	log.Println("Creating initial world...")
-	if _, err := h.Worlds.CreateWorld(ctx, worldID, 53, 25, domain.Raw); err != nil {
+	if _, err := h.Worlds.CreateWorld(ctx, worldID, 53, 28, domain.Raw); err != nil {
 		return err
 	}
 

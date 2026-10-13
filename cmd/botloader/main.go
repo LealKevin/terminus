@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
-	"fmt"
+	"log"
 	"math/rand"
 	"net"
 	"os"
@@ -17,7 +17,7 @@ import (
 func main() {
 	// Load .env file
 	godotenv.Load()
-	
+
 	numberBots := flag.Int("bots", 100, "Number of bots to spawn")
 	rampUp := flag.Bool("ramp-up", true, "Enable ramp-up mode for bot spawning")
 	rampDuration := flag.Int("ramp-duration", 60, "Duration in seconds for ramp-up mode")
@@ -118,10 +118,11 @@ func runBot(ctx context.Context, wg *sync.WaitGroup, shutdownChan <-chan int) {
 			port = "4200"
 		}
 
-		addr := fmt.Sprintf("%s:%s", host, port)
+		addr := net.JoinHostPort(host, port)
 		conn, err := net.Dial("tcp", addr)
 		if err != nil {
-			panic(err)
+			log.Printf("bot failed to connect: %v", err)
+			return
 		}
 		defer conn.Close()
 

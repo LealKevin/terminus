@@ -2,7 +2,7 @@ package client
 
 import (
 	"os"
-	
+
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -87,7 +87,7 @@ func (m Model) Init() tea.Cmd {
 	if worldID == "" {
 		worldID = "123e4567-e89b-12d3-a456-426614174000" // fallback
 	}
-	
+
 	var cmds []tea.Cmd
 	cmds = append(cmds, m.conn.getWorld(worldID))
 	cmds = append(cmds, m.conn.listenForServerMessages())

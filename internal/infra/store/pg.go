@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"errors"
-	"log"
 
 	"github.com/LealKevin/terminus/internal/domain"
 	"github.com/LealKevin/terminus/internal/infra/db"
@@ -71,6 +70,9 @@ func (ws *WorldPgStore) GetWorld(ctx context.Context, id string) (*domain.World,
 	}
 
 	rec, err := ws.db.GetWorldByID(ctx, pgID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -79,10 +81,8 @@ func (ws *WorldPgStore) GetWorld(ctx context.Context, id string) (*domain.World,
 }
 
 func (ps *PlayerPgStore) GetPlayer(ctx context.Context, id string) (*domain.Player, error) {
-	log.Printf("DEBUG: GetPlayer called with id='%s' (length=%d)", id, len(id))
 	pgID, err := parseUUID(id)
 	if err != nil {
-		log.Printf("DEBUG: parseUUID failed for id='%s': %v", id, err)
 		return nil, err
 	}
 

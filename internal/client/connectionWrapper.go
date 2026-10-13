@@ -3,7 +3,6 @@ package client
 import (
 	"bufio"
 	"encoding/json"
-	"fmt"
 	"net"
 	"os"
 
@@ -22,16 +21,16 @@ func ServerConnection() (*connectionWrapper, error) {
 	if host == "" {
 		host = "127.0.0.1"
 	}
-	
+
 	port := os.Getenv("SERVER_PORT")
 	if port == "" {
 		port = "4200"
 	}
-	
-	addr := fmt.Sprintf("%s:%s", host, port)
+
+	addr := net.JoinHostPort(host, port)
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	writer := bufio.NewWriter(conn)
@@ -75,28 +74,6 @@ func (cw *connectionWrapper) getWorld(id string) tea.Cmd {
 		}
 
 		return nil
-	}
-}
-
-func (cw *connectionWrapper) getPlayer(id string) tea.Cmd {
-	return func() tea.Msg {
-		msg := ClientMsg{Type: "getPlayer", PlayerID: id}
-		data, err := json.Marshal(msg)
-		if err != nil {
-			return errMsg{err}
-		}
-		_, err = cw.conn.Write(append(data, '\n'))
-		if err != nil {
-			return errMsg{err}
-		}
-
-		var player Player
-		err = cw.decoder.Decode(&player)
-		if err != nil {
-			return errMsg{err}
-		}
-
-		return player
 	}
 }
 

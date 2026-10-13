@@ -1,8 +1,6 @@
 package client
 
 import (
-	"fmt"
-
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -10,11 +8,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case errMsg:
 		m.err = msg.error
-		return m, m.conn.listenForServerMessages()
-
-	case Player:
-		m.msgForNow = fmt.Sprintf("Player moved to (%d, %d)", msg.X, msg.Y)
-		m.gameState.player = msg
 		return m, m.conn.listenForServerMessages()
 
 	case ServerMsg:
@@ -56,34 +49,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "up", "k":
 			m.msgForNow = "Moving up"
-			return m, tea.Batch(m.conn.sendMove(m.playerID, "N"), m.conn.listenForServerMessages())
+			return m, m.conn.sendMove(m.playerID, "N")
 		case "down", "j":
 			m.msgForNow = "Moving down"
-			return m, tea.Batch(m.conn.sendMove(m.playerID, "S"), m.conn.listenForServerMessages())
+			return m, m.conn.sendMove(m.playerID, "S")
 		case "left", "h":
 			m.msgForNow = "Moving left"
-			return m, tea.Batch(m.conn.sendMove(m.playerID, "W"), m.conn.listenForServerMessages())
+			return m, m.conn.sendMove(m.playerID, "W")
 		case "right", "l":
 			m.msgForNow = "Moving right"
-			return m, tea.Batch(m.conn.sendMove(m.playerID, "E"), m.conn.listenForServerMessages())
+			return m, m.conn.sendMove(m.playerID, "E")
 		case "y":
 			m.msgForNow = "Moving up-left"
-			return m, tea.Batch(m.conn.sendMove(m.playerID, "NW"), m.conn.listenForServerMessages())
+			return m, m.conn.sendMove(m.playerID, "NW")
 		case "u":
 			m.msgForNow = "Moving up-right"
-			return m, tea.Batch(m.conn.sendMove(m.playerID, "NE"), m.conn.listenForServerMessages())
+			return m, m.conn.sendMove(m.playerID, "NE")
 		case "b":
 			m.msgForNow = "Moving down-left"
-			return m, tea.Batch(m.conn.sendMove(m.playerID, "SW"), m.conn.listenForServerMessages())
+			return m, m.conn.sendMove(m.playerID, "SW")
 		case "n":
 			m.msgForNow = "Moving down-right"
-			return m, tea.Batch(m.conn.sendMove(m.playerID, "SE"), m.conn.listenForServerMessages())
+			return m, m.conn.sendMove(m.playerID, "SE")
 		case "a":
 			m.msgForNow = "Attacking!"
-			return m, tea.Batch(m.conn.sendAttack(m.playerID), m.conn.listenForServerMessages())
+			return m, m.conn.sendAttack(m.playerID)
 		}
 
-		return m, m.conn.listenForServerMessages()
+		return m, nil
 	}
 	return m, nil
 }

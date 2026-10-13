@@ -193,4 +193,3 @@ func (h *Handler) HandleSendWorld(ctx context.Context, cc *clientConn, worldID s
 
 	return cc.sendJson(response)
 }
-
